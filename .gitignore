@@ -1,0 +1,68 @@
+# ── Firebase ─────────────────────────────────────────────────
+# Credentials & secrets (NEVER commit these)
+GoogleService-Info.plist
+google-services.json
+.env
+*.env.local
+firebase-debug.log
+firebaserc
+
+# Cloud Functions dependencies
+EmotionalAR/Firebase/functions/node_modules/
+EmotionalAR/Firebase/functions/package-lock.json
+
+# ── Unity ────────────────────────────────────────────────────
+# OS-generated
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / Editor
+.vs/
+.vscode/
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+[Uu]ser[Ss]ettings/
+
+# Unity asset meta (keep .meta in Unity projects, ignore outside)
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Build outputs
+*.apk
+*.aab
+*.unitypackage
+*.app
+*.ipa
+*.dSYM/
+
+# Crashlytics
+crashlytics-build.properties
+com_crashlytics_export_strings.xml
+
+# ── Node / npm ───────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ── OpenAI / API Keys ───────────────────────────────────────
+*.key
+*.secret
