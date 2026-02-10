@@ -11,7 +11,7 @@
     "dependencies": {
         "3d-tiles-renderer": "^0.4.21",
         "firebase": "^10.7.0",
-        "three": "^0.161.0"
+        "three": "^0.170.0"
     },
     "devDependencies": {
         "vite": "^5.0.0"

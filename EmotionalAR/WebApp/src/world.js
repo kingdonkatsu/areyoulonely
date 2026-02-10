@@ -7,15 +7,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { GoogleTilesRenderer } from '3d-tiles-renderer';
 
 let scene, camera, renderer, composer, controls;
 let clock;
-let tilesRenderer = null;
 let _canvas;
-
-// Default API Key — REPLACE WITH YOUR OWN or enter via UI
-let GOOGLE_MAPS_API_KEY = '';
+let _targetPos = new THREE.Vector3(0, 0, 0);
+let _currentPos = new THREE.Vector3(0, 0, 0);
 
 /** Initialize the 3D world. Returns { scene, camera, renderer, clock }. */
 export function initWorld(canvas) {
@@ -71,7 +68,7 @@ export function initWorld(canvas) {
     antialias: true,
     alpha: false,
     powerPreference: 'high-performance',
-    logarithmicDepthBuffer: true, // Crucial for large scale scenes
+    shadowMap: { enabled: true, type: THREE.PCFSoftShadowMap }
   });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -105,8 +102,15 @@ export function initWorld(canvas) {
   const ambient = new THREE.AmbientLight(0xFFD580, 0.4); // Warm ambient
   scene.add(ambient);
 
-  const sunLight = new THREE.DirectionalLight(0xFFAB76, 1.5); // Sunset sun
-  sunLight.position.set(-500, 300, -500);
+  const sunLight = new THREE.DirectionalLight(0xFFAB76, 2.0); // Sunset sun
+  sunLight.position.set(-200, 300, -200);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.width = 2048;
+  sunLight.shadow.mapSize.height = 2048;
+  sunLight.shadow.camera.left = -500;
+  sunLight.shadow.camera.right = 500;
+  sunLight.shadow.camera.top = 500;
+  sunLight.shadow.camera.bottom = -500;
   scene.add(sunLight);
 
   // Fill light from opposite side (cool blue shadows)
@@ -117,49 +121,41 @@ export function initWorld(canvas) {
   // ── Particles ─────────────────────────────────────────────
   createParticles();
 
+  // Stylized Ground
+  initGround(scene);
+
   // ── Resize ────────────────────────────────────────────────
   window.addEventListener('resize', onResize);
 
   return { scene, camera, renderer, clock };
 }
 
-// ── Google 3D Tiles ────────────────────────────────────────────
+// ── Stylized Ground ──────────────────────────────────────────
 
-export function init3DTiles(apiKey, lat, lng) {
-  if (!apiKey) {
-    console.warn('[3D Tiles] No API Key provided. Geometry will not load.');
-    return;
-  }
+export function initGround(scene) {
+  // Decorative Grass/Dirt Circle
+  const groundGeo = new THREE.CircleGeometry(800, 64);
+  const groundMat = new THREE.MeshStandardMaterial({
+    color: '#91C483', // Softer sage green
+    roughness: 1.0,
+    metalness: 0
+  });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.receiveShadow = true;
+  ground.name = 'ground';
+  scene.add(ground);
 
-  if (tilesRenderer) {
-    // Dispose old renderer if re-init
-    // (Actual disposal implementation omitted for brevity, usually not needed in this flow)
-  }
-
-  GOOGLE_MAPS_API_KEY = apiKey;
-
-  // Setup renderer
-  tilesRenderer = new GoogleTilesRenderer(renderer, GOOGLE_MAPS_API_KEY);
-  tilesRenderer.setLatLonToYUp(lat * Math.PI / 180, lng * Math.PI / 180);
-
-  // Attribution is required by Google
-  tilesRenderer.setResolutionFromRenderer(camera, renderer);
-
-  // Custom adjustments for look & feel
-  // Increase tile cache for smoother loading
-  tilesRenderer.lruCache.minSize = 1000;
-  tilesRenderer.lruCache.maxSize = 2500;
-  tilesRenderer.errorTarget = 12; // Lower = higher quality
-
-  scene.add(tilesRenderer.group);
+  // Subtle path or dirt patches could go here
 }
 
-export function update3DTilesTarget(lat, lng) {
-  if (!tilesRenderer) return;
-  // Re-center world if user moves significantly?
-  // For simplicity in this demo, we keep the world centered on start position
-  // and move the camera/user. But if we wanted to re-center the origin:
-  // tilesRenderer.setLatLonToYUp(lat * Math.PI / 180, lng * Math.PI / 180);
+/** Glide the world/camera to a new local position smoothly. */
+export function smoothTo(x, z) {
+  _targetPos.set(x, 0, z);
+}
+
+export function updateWorldBounds(lat, lng) {
+  // Placeholder for when we add building loading logic
 }
 
 // ── Particles (Dust motes) ─────────────────────────────────────
@@ -222,16 +218,20 @@ function createParticles() {
 export function updateWorld() {
   const t = clock.getElapsedTime();
 
+  // Smooth position interpolation (Pokémon Go style)
+  const lerpFactor = 0.05; // Adjust for "snappiness" vs "fluidity"
+  _currentPos.lerp(_targetPos, lerpFactor);
+
+  // Offset the scene or move the controls? 
+  // Moving the controls target is best for a "follow-me" feel.
+  controls.target.copy(_currentPos);
+
   // Update particles
   scene.children.forEach(child => {
     if (child.isPoints && child.material.uniforms?.uTime) {
       child.material.uniforms.uTime.value = t;
     }
   });
-
-  if (tilesRenderer) {
-    tilesRenderer.update();
-  }
 
   controls.update();
   composer.render();
@@ -241,7 +241,6 @@ export function getScene() { return scene; }
 export function getCamera() { return camera; }
 export function getRenderer() { return renderer; }
 export function getClock() { return clock; }
-export function getTilesRenderer() { return tilesRenderer; }
 
 // ── Raycasting ─────────────────────────────────────────────────
 

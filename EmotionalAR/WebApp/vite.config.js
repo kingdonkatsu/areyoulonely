@@ -7,8 +7,11 @@ export default defineConfig({
         outDir: 'dist',
         sourcemap: true,
     },
+    optimizeDeps: {
+        exclude: ['3d-tiles-renderer'],
+    },
     server: {
         port: 3000,
-        open: true,
+        host: true,
     },
 });

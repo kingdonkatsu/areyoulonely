@@ -4,7 +4,7 @@
 
 import { postMessage, postResponse, fetchResponses, updatePresence, getPresenceCount } from './firebase.js';
 import { getPosition } from './gps.js';
-import { setPresenceDots } from './nodes.js';
+import { setPresenceDots, syncNodes } from './nodes.js';
 
 // ── DOM refs ──────────────────────────────────────────────────
 const $ = (s) => document.querySelector(s);
@@ -56,7 +56,11 @@ export function initUI(onNodeDeselect) {
     });
 
     // ── Send support ────────────────────────────────────────
+    // ── Send support ────────────────────────────────────────
     $('#btn-send-support').addEventListener('click', openResponseInput);
+
+    // ── Emotion Selector ────────────────────────────────────
+    initEmotionSelector();
 }
 
 // ── Message Card ──────────────────────────────────────────────
@@ -146,7 +150,43 @@ function openInput() {
     $('#btn-submit').disabled = true;
     $('#btn-submit').textContent = 'Send';
     $('#input-overlay').classList.remove('hidden');
+    $('#input-overlay').classList.remove('hidden');
+
+    // Reset emotion selection
+    document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+    _selectedEmotion = 'hope'; // Default
+    $(`[data-emotion="hope"]`)?.classList.add('selected');
+
     setTimeout(() => $('#input-text').focus(), 100);
+}
+
+let _selectedEmotion = 'hope';
+
+function initEmotionSelector() {
+    const container = document.createElement('div');
+    container.id = 'emotion-selector';
+    container.className = 'emotion-selector';
+
+    Object.keys(BADGE_COLORS).forEach(emotion => {
+        const btn = document.createElement('button');
+        btn.className = 'emotion-btn';
+        btn.dataset.emotion = emotion;
+        btn.style.backgroundColor = BADGE_COLORS[emotion].bg;
+        btn.style.color = BADGE_COLORS[emotion].text;
+        btn.textContent = emotion;
+        btn.onclick = () => {
+            _selectedEmotion = emotion;
+            document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+        };
+        container.appendChild(btn);
+    });
+
+    // Insert before text area
+    const overlay = $('#input-content');
+    if (overlay) {
+        overlay.insertBefore(container, $('#input-text'));
+    }
 }
 
 function openResponseInput() {
@@ -181,7 +221,22 @@ async function handleSubmit() {
             loadResponses(_selectedNodeEntry.data.id);
         } else {
             const pos = getPosition();
-            await postMessage(text, pos.lat, pos.lng);
+
+            // Immediate local feedback (Optimistic UI)
+            const tempId = `temp_${Date.now()}`;
+            syncNodes([{
+                id: tempId,
+                text: text,
+                emotion: _selectedEmotion,
+                colorHex: BADGE_COLORS[_selectedEmotion].bg,
+                latitude: pos.lat,
+                longitude: pos.lng,
+                createdAt: new Date().toISOString(),
+                intensity: 1.0,
+                responseCount: 0
+            }]);
+
+            await postMessage(text, pos.lat, pos.lng, _selectedEmotion);
             showToast('Shared anonymously ✨', 'success');
         }
         closeInput();

@@ -32,17 +32,23 @@ export function startGPS(onUpdate) {
                 // Start continuous watching
                 _watchId = navigator.geolocation.watchPosition(
                     handleUpdate,
-                    (err) => console.warn('[GPS] Watch error:', err.message),
-                    { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+                    (err) => {
+                        // Only log if it's not a timeout (e.g. permission revoked)
+                        // Timeout is common on desktops/indoors and shouldn't spam the console
+                        if (err.code !== err.TIMEOUT) {
+                            console.warn('[GPS] Watch error:', err.message);
+                        }
+                    },
+                    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
                 );
             },
             (err) => {
-                console.warn('[GPS] Permission denied or error, using stub.');
+                console.warn('[GPS] Initial acquisition failed, using fallback.');
                 _lat = 1.3521; _lng = 103.8198;
                 _ready = true;
                 resolve({ lat: _lat, lng: _lng });
             },
-            { enableHighAccuracy: true, timeout: 10000 }
+            { enableHighAccuracy: true, timeout: 30000 }
         );
     });
 }
@@ -52,7 +58,7 @@ function handleUpdate(pos) {
     const newLng = pos.coords.longitude;
     const dist = haversine(_lat, _lng, newLat, newLng);
 
-    if (dist >= 5) { // moved > 5m
+    if (dist >= 1) { // moved > 1m (Pokémon Go style granularity)
         _lat = newLat;
         _lng = newLng;
         if (_onUpdate) _onUpdate({ lat: _lat, lng: _lng, moved: dist });

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="description" content="EmotionalAR — Anonymous emotional messages visualized as glowing 3D nodes in your surroundings." />
+  <meta name="theme-color" content="#0f0f1a" />
+  <title>EmotionalAR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <script type="module" crossorigin src="/assets/index-BsIXnonP.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DV_eVRUe.css">
+</head>
+<body>
+  <!-- Loading Screen -->
+  <div id="loading-screen">
+    <div class="loading-content">
+      <div class="loading-orb"></div>
+      <h1 class="loading-title">EmotionalAR</h1>
+      <p class="loading-sub">Finding nearby emotions…</p>
+      <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+    </div>
+  </div>
+
+  <!-- Three.js Canvas -->
+  <canvas id="world-canvas"></canvas>
+
+  <!-- HUD -->
+  <div id="hud">
+    <div class="hud-top">
+      <span class="hud-logo">EmotionalAR</span>
+      <span id="hud-count" class="hud-badge">0 nearby</span>
+    </div>
+    <button id="btn-new-message" class="fab" title="Share how you're feeling">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19" />
+        <line x1="5" y1="12" x2="19" y2="12" />
+      </svg>
+    </button>
+  </div>
+
+  <!-- Message Card -->
+  <div id="message-card" class="card hidden">
+    <button id="card-close" class="card-close">&times;</button>
+    <div class="card-emotion">
+      <span id="card-badge" class="emotion-badge">HOPE</span>
+    </div>
+    <p id="card-text" class="card-text"></p>
+    <div class="card-meta">
+      <span id="card-time" class="card-time"></span>
+      <span id="card-responses" class="card-responses"></span>
+    </div>
+    <div id="card-response-list" class="response-list"></div>
+    <button id="btn-send-support" class="btn-primary">Send Support</button>
+  </div>
+
+  <!-- Input Overlay -->
+  <div id="input-overlay" class="overlay hidden">
+    <div class="input-card" id="input-content">
+      <h2 class="input-title">Share Anonymously</h2>
+      <textarea id="input-text" class="input-textarea" maxlength="280" placeholder="How are you feeling?"></textarea>
+      <div class="input-footer">
+        <span id="char-count" class="char-count">0 / 280</span>
+        <div class="input-actions">
+          <button id="btn-cancel" class="btn-ghost">Cancel</button>
+          <button id="btn-submit" class="btn-primary" disabled>Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty State -->
+  <div id="empty-state" class="overlay hidden">
+    <div class="empty-card">
+      <div class="empty-icon">🌌</div>
+      <h2>The emotional landscape is quiet here</h2>
+      <p>Be the first to share how you're feeling</p>
+      <button id="btn-share-first" class="btn-primary">Share a Feeling</button>
+    </div>
+  </div>
+
+  <!-- Moderation Toast -->
+  <div id="moderation-toast" class="toast hidden">
+    <span id="toast-text">Sharing your support…</span>
+  </div>
+
+</body>
+</html>
+

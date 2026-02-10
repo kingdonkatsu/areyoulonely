@@ -18,6 +18,8 @@ const USE_STUBS = !FIREBASE_CONFIG.apiKey; // Auto-detect stub mode
 
 let _db, _auth, _functions, _userId;
 let _ready = false;
+let _localMessages = [];
+const STORAGE_KEY = 'emotional_ar_local_messages';
 
 // ── Emotion colors ────────────────────────────────────────────
 const EMOTION_COLORS = {
@@ -35,6 +37,19 @@ const EMOTIONS = Object.keys(EMOTION_COLORS);
 export async function initFirebase() {
     if (USE_STUBS) {
         _userId = 'dev-user-' + Math.floor(Math.random() * 9000 + 1000);
+
+        // Load from local storage
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            try {
+                _localMessages = JSON.parse(saved);
+                console.log(`[Firebase] Loaded ${_localMessages.length} local messages.`);
+            } catch (e) {
+                console.warn('[Firebase] Failed to parse local storage.');
+                _localMessages = [];
+            }
+        }
+
         _ready = true;
         console.log('[Firebase] Running in STUB mode — no real backend.');
         return;
@@ -63,7 +78,11 @@ export function getUserId() { return _userId; }
 // ── Fetch Nearby Messages ─────────────────────────────────────
 
 export async function fetchNearbyMessages(lat, lng, radiusMeters = 20) {
-    if (USE_STUBS) return generateStubMessages(lat, lng);
+    if (USE_STUBS) {
+        const demo = generateStubMessages(lat, lng);
+        // Combine demo messages with user's local persistent messages
+        return [..._localMessages, ...demo];
+    }
 
     const { httpsCallable } = await import('firebase/functions');
     const fn = httpsCallable(_functions, 'fetchNearbyMessages');
@@ -75,7 +94,26 @@ export async function fetchNearbyMessages(lat, lng, radiusMeters = 20) {
 
 export async function postMessage(text, lat, lng) {
     if (USE_STUBS) {
-        console.log(`[Firebase] [STUB] PostMessage: "${text}" at (${lat}, ${lng})`);
+        const id = 'local-' + Date.now();
+        const emotion = EMOTIONS[Math.floor(Math.random() * EMOTIONS.length)];
+        const msg = {
+            id,
+            text,
+            emotion,
+            intensity: 0.8,
+            colorHex: EMOTION_COLORS[emotion],
+            latitude: lat,
+            longitude: lng,
+            responseCount: 0,
+            responses: [], // Local storage handles responses inside the object for simplicity
+            createdAt: new Date().toISOString(),
+            isLocal: true
+        };
+
+        _localMessages.push(msg);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(_localMessages));
+
+        console.log(`[Firebase] [STUB] Message saved locally: "${text}"`);
         return true;
     }
 
@@ -95,7 +133,14 @@ export async function postMessage(text, lat, lng) {
 
 export async function postResponse(messageId, text) {
     if (USE_STUBS) {
-        console.log(`[Firebase] [STUB] PostResponse to ${messageId}: "${text}"`);
+        const msg = _localMessages.find(m => m.id === messageId);
+        if (msg) {
+            msg.responses = msg.responses || [];
+            msg.responses.push({ id: 'r-' + Date.now(), text });
+            msg.responseCount = msg.responses.length;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(_localMessages));
+        }
+        console.log(`[Firebase] [STUB] Response saved to ${messageId}: "${text}"`);
         return true;
     }
 
@@ -110,7 +155,11 @@ export async function postResponse(messageId, text) {
 // ── Fetch Responses ──────────────────────────────────────────
 
 export async function fetchResponses(messageId) {
-    if (USE_STUBS) return generateStubResponses();
+    if (USE_STUBS) {
+        const msg = _localMessages.find(m => m.id === messageId);
+        if (msg && msg.responses) return msg.responses;
+        return generateStubResponses();
+    }
 
     const { collection, getDocs, orderBy, query, doc } = await import('firebase/firestore');
     const q = query(

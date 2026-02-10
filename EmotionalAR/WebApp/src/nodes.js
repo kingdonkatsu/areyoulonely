@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { nodeGlowVertex, nodeGlowFragment, createNodeUniforms } from './shaders/nodeGlow.js';
 import { gpsToLocal, getPosition } from './gps.js';
-import { getTilesRenderer } from './world.js'; // Need to raycast against tiles
+// No longer need getTilesRenderer, we raycast against the scene
 
 const nodes = new Map();   // id → { mesh, data, discs[], dots[], group }
 let _scene = null;
@@ -13,11 +13,15 @@ const _raycaster = new THREE.Raycaster();
 const _down = new THREE.Vector3(0, -1, 0);
 
 const EMOTION_COLORS = {
-    comfort: '#6EE7B7',
-    hope: '#FFD93D',
-    sadness: '#6B9BD1',
-    stress: '#A78BFA',
-    loneliness: '#F9A8D4',
+    // Warm (Joy, Hope, Comfort)
+    joy: '#FFD700',      // Gold
+    hope: '#FF8C00',     // DarkOrange
+    comfort: '#FF69B4',  // HotPink
+
+    // Cool (Sadness, Loneliness, Stress)
+    sadness: '#4682B4',  // SteelBlue
+    loneliness: '#9370DB', // MediumPurple
+    stress: '#708090',   // SlateGray
 };
 
 /** Initialize with scene reference. */
@@ -48,6 +52,11 @@ export function syncNodes(messages) {
     return nodes.size;
 }
 
+/** Get color based on emotion (fallback to purple) */
+function getEmotionColor(emotion) {
+    return new THREE.Color(EMOTION_COLORS[emotion] || '#9370DB');
+}
+
 // ── Spawn ──────────────────────────────────────────────────────
 
 function spawnNode(msg) {
@@ -66,11 +75,11 @@ function spawnNode(msg) {
 
     group.name = `node_${msg.id}`;
 
-    const color = new THREE.Color(msg.colorHex || EMOTION_COLORS[msg.emotion] || '#A78BFA');
+    const color = msg.colorHex ? new THREE.Color(msg.colorHex) : getEmotionColor(msg.emotion);
     const intensity = msg.intensity || 0.5;
 
-    // Main sphere
-    const geo = new THREE.SphereGeometry(0.3, 32, 32);
+    // Main Crystal (Octahedron)
+    const geo = new THREE.OctahedronGeometry(0.3, 0); // detail=0 for sharp crystal look
     const uniforms = createNodeUniforms(color, intensity);
     const mat = new THREE.ShaderMaterial({
         vertexShader: nodeGlowVertex,
@@ -85,25 +94,23 @@ function spawnNode(msg) {
     const mesh = new THREE.Mesh(geo, mat);
 
     // Size based on intensity
-    const size = THREE.MathUtils.lerp(0.25, 0.45, intensity);
-    const growth = Math.min(1 + (msg.responseCount || 0) * 0.08, 1.5);
-    const finalSize = size * growth;
-    mesh.scale.set(finalSize, finalSize * 0.9, finalSize);
+    const size = THREE.MathUtils.lerp(0.3, 0.6, intensity);
+    mesh.scale.set(size, size * 1.5, size); // Elongated crystal
 
     group.add(mesh);
 
     // Inner glow point light
-    const light = new THREE.PointLight(color, intensity * 0.8, 4);
+    const light = new THREE.PointLight(color, intensity, 3);
     light.position.set(0, 0, 0);
     group.add(light);
 
-    // Response discs
+    // Response Shards (Stacked Crystals)
     const discs = [];
     const visibleResponses = Math.min(msg.responseCount || 0, 5);
     for (let i = 0; i < visibleResponses; i++) {
-        const disc = createResponseDisc(color, i);
-        group.add(disc);
-        discs.push(disc);
+        const shard = createResponseShard(color, i);
+        group.add(shard);
+        discs.push(shard);
     }
 
     // Presence dots (will be updated later)
@@ -122,28 +129,38 @@ function spawnNode(msg) {
 }
 
 function findGroundHeight(x, z) {
-    const tilesComp = getTilesRenderer();
-    if (!tilesComp || !tilesComp.group) return 0;
+    if (!_scene) return 0;
 
     _raycaster.set(new THREE.Vector3(x, 1000, z), _down);
-    // Intersect with the tiles group
-    const hits = _raycaster.intersectObject(tilesComp.group, true);
-    if (hits.length > 0) {
-        return hits[0].point.y;
+    // Intersect with anything in the scene (ground, buildings)
+    const hits = _raycaster.intersectObjects(_scene.children, true);
+
+    // Find the highest point that isn't a node itself
+    for (const hit of hits) {
+        if (!hit.object.name.includes('node')) {
+            return hit.point.y;
+        }
     }
-    return 0; // Default to 0 if no tile hit
+    return 0;
 }
 
-function createResponseDisc(color, index) {
-    const geo = new THREE.CylinderGeometry(0.35, 0.35, 0.03, 16);
+function createResponseShard(color, index) {
+    const geo = new THREE.OctahedronGeometry(0.2, 0);
     const mat = new THREE.MeshBasicMaterial({
         color,
         transparent: true,
-        opacity: 0.25,
+        opacity: 0.4,
+        blending: THREE.AdditiveBlending
     });
-    const disc = new THREE.Mesh(geo, mat);
-    disc.position.y = -(index + 1) * 0.1;
-    return disc;
+    const shard = new THREE.Mesh(geo, mat);
+
+    // Flattened shard
+    shard.scale.set(1, 0.2, 1);
+
+    // Stack underneath
+    shard.position.y = -(index + 1) * 0.15 - 0.2;
+
+    return shard;
 }
 
 // ── Update ─────────────────────────────────────────────────────
@@ -159,9 +176,9 @@ function updateNode(msg) {
     if (msg.responseCount > oldResponseCount) {
         const newCount = Math.min(msg.responseCount, 5);
         for (let i = entry.discs.length; i < newCount; i++) {
-            const disc = createResponseDisc(entry.color, i);
-            entry.group.add(disc);
-            entry.discs.push(disc);
+            const shard = createResponseShard(entry.color, i);
+            entry.group.add(shard);
+            entry.discs.push(shard);
         }
     }
 }
@@ -182,8 +199,12 @@ export function animateNodes(time) {
             group.scale.setScalar(ease);
         }
 
+        // Gentle breathing animation (scale sine wave)
+        const breathe = 1 + Math.sin(time * 1.5 + id.charCodeAt(0)) * 0.05;
+        mesh.scale.setScalar(breathe); // Apply to main crystal
+
         // Float animation relative to baseY
-        group.position.y = baseY + Math.sin(time * 0.8 + id.charCodeAt(0)) * 0.12;
+        group.position.y = baseY + Math.sin(time * 0.5 + id.charCodeAt(0)) * 0.2;
 
         // Rotate
         group.rotation.y += 0.003;
