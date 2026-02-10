@@ -92,20 +92,21 @@ export async function fetchNearbyMessages(lat, lng, radiusMeters = 20) {
 
 // ── Post Message ──────────────────────────────────────────────
 
-export async function postMessage(text, lat, lng) {
+export async function postMessage(text, lat, lng, emotion) {
     if (USE_STUBS) {
         const id = 'local-' + Date.now();
-        const emotion = EMOTIONS[Math.floor(Math.random() * EMOTIONS.length)];
+        // Use the provided emotion, or fallback to random
+        const selectedEmotion = emotion && EMOTION_COLORS[emotion] ? emotion : EMOTIONS[Math.floor(Math.random() * EMOTIONS.length)];
         const msg = {
             id,
             text,
-            emotion,
+            emotion: selectedEmotion,
             intensity: 0.8,
-            colorHex: EMOTION_COLORS[emotion],
+            colorHex: EMOTION_COLORS[selectedEmotion],
             latitude: lat,
             longitude: lng,
             responseCount: 0,
-            responses: [], // Local storage handles responses inside the object for simplicity
+            responses: [],
             createdAt: new Date().toISOString(),
             isLocal: true
         };
@@ -113,7 +114,7 @@ export async function postMessage(text, lat, lng) {
         _localMessages.push(msg);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(_localMessages));
 
-        console.log(`[Firebase] [STUB] Message saved locally: "${text}"`);
+        console.log(`[Firebase] [STUB] Message saved locally: "${text}" (${selectedEmotion})`);
         return true;
     }
 

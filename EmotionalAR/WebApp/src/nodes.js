@@ -104,13 +104,15 @@ function spawnNode(msg) {
     light.position.set(0, 0, 0);
     group.add(light);
 
-    // Response Shards (Stacked Crystals)
+    // Response Shards (Stacked Crystals) — show immediately if responses exist
     const discs = [];
     const visibleResponses = Math.min(msg.responseCount || 0, 5);
-    for (let i = 0; i < visibleResponses; i++) {
-        const shard = createResponseShard(color, i);
-        group.add(shard);
-        discs.push(shard);
+    if (visibleResponses > 0) {
+        for (let i = 0; i < visibleResponses; i++) {
+            const shard = createResponseShard(color, i);
+            group.add(shard);
+            discs.push(shard);
+        }
     }
 
     // Presence dots (will be updated later)
@@ -172,9 +174,9 @@ function updateNode(msg) {
     const oldResponseCount = entry.data.responseCount || 0;
     entry.data = msg;
 
-    // Add new response discs
-    if (msg.responseCount > oldResponseCount) {
-        const newCount = Math.min(msg.responseCount, 5);
+    // Add new response discs — including when count goes from 0 to positive
+    const newCount = Math.min(msg.responseCount || 0, 5);
+    if (newCount > entry.discs.length) {
         for (let i = entry.discs.length; i < newCount; i++) {
             const shard = createResponseShard(entry.color, i);
             entry.group.add(shard);

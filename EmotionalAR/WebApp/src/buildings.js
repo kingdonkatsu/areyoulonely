@@ -27,12 +27,10 @@ export function initBuildings(scene) {
     _scene.add(_buildingsGroup);
 }
 
-/** Fetch building footprints and extrude them */
+/** Fetch building footprints and extrude them. Returns count of buildings rendered. */
 export async function updateBuildings(lat, lng, radius = 400) {
     console.log(`[Buildings] Fetching OSM near ${lat}, ${lng}...`);
 
-    // OPTIMIZED QUERY: Removed bare node(around) lookup. 
-    // Now only queries for ways with building tag + their geometry.
     const query = `[out:json][timeout:25];way(around:${radius},${lat},${lng})["building"];(._;>;);out;`;
 
     const data = await fetchWithMirrors(query);
@@ -40,9 +38,20 @@ export async function updateBuildings(lat, lng, radius = 400) {
         clearBuildings();
         processOSMData(data, lat, lng);
     }
+    return _buildingsGroup.children.length;
 }
 
-async function fetchWithMirrors(query, attempt = 0) {
+/** Get count of rendered buildings. */
+export function getBuildingCount() {
+    return _buildingsGroup ? _buildingsGroup.children.length : 0;
+}
+
+async function fetchWithMirrors(query, attempt = 0, maxAttempts = 5) {
+    if (attempt >= maxAttempts) {
+        console.error(`[Buildings] All ${maxAttempts} fetch attempts exhausted.`);
+        return null;
+    }
+
     const mirror = OVERPASS_MIRRORS[currentMirrorIndex];
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -62,16 +71,16 @@ async function fetchWithMirrors(query, attempt = 0) {
 
         return JSON.parse(text);
     } catch (err) {
+        clearTimeout(timeoutId);
         currentMirrorIndex = (currentMirrorIndex + 1) % OVERPASS_MIRRORS.length;
 
-        // If we've circled through all mirrors once, wait longer (Backoff)
         const isNewCycle = (attempt + 1) % OVERPASS_MIRRORS.length === 0;
         const delay = isNewCycle ? 15000 : 1000;
 
-        console.warn(`[Buildings] Mirror fail: ${err.message}. Retrying mirror ${currentMirrorIndex} in ${delay / 1000}s...`);
+        console.warn(`[Buildings] Mirror fail: ${err.message}. Retrying mirror ${currentMirrorIndex} in ${delay / 1000}s... (attempt ${attempt + 1}/${maxAttempts})`);
 
         await new Promise(r => setTimeout(r, delay));
-        return fetchWithMirrors(query, attempt + 1);
+        return fetchWithMirrors(query, attempt + 1, maxAttempts);
     }
 }
 

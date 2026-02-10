@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// Three.js 3D World — Google Maps 3D Tiles + Warm Lighting
+// Three.js 3D World — Camera, Lighting, Post-Processing
 // ═══════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
@@ -26,9 +26,9 @@ export function initWorld(canvas) {
   const skyGeo = new THREE.SphereGeometry(2000, 32, 32);
   const skyMat = new THREE.ShaderMaterial({
     uniforms: {
-      uTopColor: { value: new THREE.Color('#6B4C7D') }, // Deep purple/blue zenith
-      uHorizonColor: { value: new THREE.Color('#FFAB76') }, // Warm peach/orange horizon
-      uBottomColor: { value: new THREE.Color('#FFD580') }, // Golden ground haze
+      uTopColor: { value: new THREE.Color('#6B4C7D') },
+      uHorizonColor: { value: new THREE.Color('#FFAB76') },
+      uBottomColor: { value: new THREE.Color('#FFD580') },
     },
     vertexShader: `
       varying vec3 vWorldPos;
@@ -54,12 +54,13 @@ export function initWorld(canvas) {
   });
   scene.add(new THREE.Mesh(skyGeo, skyMat));
 
-  // Warm Fog for depth masking
-  scene.fog = new THREE.FogExp2(0xFFAB76, 0.002);
+  // Warm Fog — slightly denser for cosier close-up feel
+  scene.fog = new THREE.FogExp2(0xFFAB76, 0.004);
 
-  // ── Camera ────────────────────────────────────────────────
+  // ── Camera (FOV 60, positioned behind & above character) ──
   camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 4000);
-  camera.position.set(0, 100, 200);
+  // Start behind the character (character faces +Z), camera at +Z offset, 5m above
+  camera.position.set(0, 5, 10);
   camera.lookAt(0, 0, 0);
 
   // ── Renderer ──────────────────────────────────────────────
@@ -68,13 +69,14 @@ export function initWorld(canvas) {
     antialias: true,
     alpha: false,
     powerPreference: 'high-performance',
-    shadowMap: { enabled: true, type: THREE.PCFSoftShadowMap }
   });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   // ── Post-processing: Bloom ────────────────────────────────
   composer = new EffectComposer(renderer);
@@ -88,21 +90,21 @@ export function initWorld(canvas) {
   );
   composer.addPass(bloom);
 
-  // ── Controls ──────────────────────────────────────────────
+  // ── Controls (tighter orbit for close-to-character feel) ──
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
-  controls.minDistance = 10;
-  controls.maxDistance = 800;
+  controls.minDistance = 3;
+  controls.maxDistance = 80;
   controls.maxPolarAngle = Math.PI / 2.1;
   controls.enablePan = true;
   controls.screenSpacePanning = false;
 
   // ── Lighting (Golden Hour) ────────────────────────────────
-  const ambient = new THREE.AmbientLight(0xFFD580, 0.4); // Warm ambient
+  const ambient = new THREE.AmbientLight(0xFFD580, 0.4);
   scene.add(ambient);
 
-  const sunLight = new THREE.DirectionalLight(0xFFAB76, 2.0); // Sunset sun
+  const sunLight = new THREE.DirectionalLight(0xFFAB76, 2.0);
   sunLight.position.set(-200, 300, -200);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.width = 2048;
@@ -133,10 +135,9 @@ export function initWorld(canvas) {
 // ── Stylized Ground ──────────────────────────────────────────
 
 export function initGround(scene) {
-  // Decorative Grass/Dirt Circle
-  const groundGeo = new THREE.CircleGeometry(800, 64);
+  const groundGeo = new THREE.CircleGeometry(500, 64);
   const groundMat = new THREE.MeshStandardMaterial({
-    color: '#91C483', // Softer sage green
+    color: '#91C483',
     roughness: 1.0,
     metalness: 0
   });
@@ -145,8 +146,6 @@ export function initGround(scene) {
   ground.receiveShadow = true;
   ground.name = 'ground';
   scene.add(ground);
-
-  // Subtle path or dirt patches could go here
 }
 
 /** Glide the world/camera to a new local position smoothly. */
@@ -155,7 +154,7 @@ export function smoothTo(x, z) {
 }
 
 export function updateWorldBounds(lat, lng) {
-  // Placeholder for when we add building loading logic
+  // Placeholder for future use
 }
 
 // ── Particles (Dust motes) ─────────────────────────────────────
@@ -167,9 +166,9 @@ function createParticles() {
   const sizes = new Float32Array(count);
 
   for (let i = 0; i < count; i++) {
-    positions[i * 3] = (Math.random() - 0.5) * 400;
-    positions[i * 3 + 1] = Math.random() * 100;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 400;
+    positions[i * 3] = (Math.random() - 0.5) * 300;
+    positions[i * 3 + 1] = Math.random() * 60;
+    positions[i * 3 + 2] = (Math.random() - 0.5) * 300;
     sizes[i] = Math.random() * 2 + 0.5;
   }
 
@@ -179,7 +178,7 @@ function createParticles() {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uColor: { value: new THREE.Color('#FFD580') }, // Golden dust
+      uColor: { value: new THREE.Color('#FFD580') },
     },
     vertexShader: `
       attribute float aSize;
@@ -219,11 +218,10 @@ export function updateWorld() {
   const t = clock.getElapsedTime();
 
   // Smooth position interpolation (Pokémon Go style)
-  const lerpFactor = 0.05; // Adjust for "snappiness" vs "fluidity"
+  const lerpFactor = 0.05;
   _currentPos.lerp(_targetPos, lerpFactor);
 
-  // Offset the scene or move the controls? 
-  // Moving the controls target is best for a "follow-me" feel.
+  // Follow the current position
   controls.target.copy(_currentPos);
 
   // Update particles
