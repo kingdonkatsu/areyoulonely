@@ -43,7 +43,7 @@ export function initWorld() {
       style: 'mapbox://styles/mapbox/standard',
       center: [0, 0],
       zoom: 18,
-      minZoom: 17.5, // Strict limit: roughly 300m view radius
+      minZoom: 18.5, // Strict limit: roughly 150m view radius
       pitch: 60,       // Tilt for 3D view
       bearing: 0,
       antialias: true,
@@ -88,10 +88,10 @@ export function setOrigin(lat, lng) {
   _map.setCenter([lng, lat]);
   console.log(`[World] Origin set: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
 
-  // Restrict map bounds to ~300m around start (±0.003 degrees)
+  // Restrict map bounds to ~150m around start (±0.0015 degrees)
   const bounds = new mapboxgl.LngLatBounds(
-    [lng - 0.003, lat - 0.003],
-    [lng + 0.003, lat + 0.003]
+    [lng - 0.0015, lat - 0.0015],
+    [lng + 0.0015, lat + 0.0015]
   );
   _map.setMaxBounds(bounds);
 }
