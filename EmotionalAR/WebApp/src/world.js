@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import mapboxgl from 'mapbox-gl';
 import { MAPBOX_ACCESS_TOKEN } from './config.js';
+import mapStyle from './mapStyle.js';
 
 let _map = null;
 let _scene = null;
@@ -40,7 +41,7 @@ export function initWorld() {
     // Full-screen Mapbox GL map
     _map = new mapboxgl.Map({
       container: 'map',
-      style: 'mapbox://styles/mapbox/standard',
+      style: mapStyle, // Use custom JSON style
       center: [0, 0],
       zoom: 18.5,
       minZoom: 18.5, // strict outer limit (150m)
@@ -63,18 +64,7 @@ export function initWorld() {
       touchZoomRotate: true, // Rotate/Zoom allowed
       pitchWithRotate: true, // Allow looking up/down
       touchPitch: true,      // Allow looking up/down
-      config: {
-        basemap: {
-          lightPreset: 'dawn',
-          // theme: 'custom', // To use custom theme, set theme: 'custom'
-          // themeData: '<base64-lut-string>', // Provide base64 LUT here
-          showPointOfInterestLabels: false,
-          showPlaceLabels: false,
-          showRoadLabels: false,
-          showTransitLabels: false,
-          showLandmarkIconLabels: false
-        }
-      }
+      // Config provided in mapStyle
     });
 
     _map.on('style.load', () => {
