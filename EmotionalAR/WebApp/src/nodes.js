@@ -67,7 +67,8 @@ function spawnNode(msg) {
     group.position.set(local.x, 50, local.z);
 
     // Get elevation from Mapbox terrain
-    const groundY = getElevation(msg.latitude, msg.longitude) || 0;
+    const elevData = getElevation(msg.latitude, msg.longitude);
+    const groundY = (typeof elevData === 'object' ? elevData.elevation : elevData) || 0;
 
     // Hover 1.5m above ground
     group.position.y = groundY + 1.5;

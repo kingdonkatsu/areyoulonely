@@ -307,12 +307,41 @@ function buildShadow(parent) {
 // PUBLIC API
 // ═══════════════════════════════════════════════════════════════
 
-/** Move character to a local XZ position, adjusting Y based on terrain elevation. */
+// Lerp state for smooth movement
+let _currentPos = { x: 0, y: 0, z: 0 };
+let _targetPos = { x: 0, y: 0, z: 0 };
+let _walkSpeed = 1.0; // m/s (for animation speed scaling)
+const LERP_SPEED_XZ = 3.0;   // How fast XZ catches up (higher = faster)
+const LERP_SPEED_Y = 2.0;    // How fast Y catches up (slower = floating walk effect)
+
+/** Set the target position. Character will lerp toward it smoothly. */
+export function setTargetPosition(x, z, elevationData) {
+    _targetPos.x = x;
+    _targetPos.z = z;
+    // elevationData is { elevation, onBuilding } from getElevation
+    if (elevationData && typeof elevationData.elevation === 'number') {
+        _targetPos.y = elevationData.elevation;
+    } else if (typeof elevationData === 'number') {
+        // Fallback: plain number
+        _targetPos.y = elevationData;
+    }
+}
+
+/** Move character to a local XZ position, adjusting Y based on terrain elevation.
+ *  @deprecated Use setTargetPosition for smooth lerp instead. */
 export function updateCharacterPosition(lat, lng, x, z) {
     if (!_group) return;
+    // Legacy: snap directly (kept for backward compatibility)
     _group.position.x = x;
     _group.position.z = z;
-    _group.position.y = getElevation(lat, lng);
+    const elev = getElevation(lat, lng);
+    _group.position.y = typeof elev === 'object' ? elev.elevation : elev;
+    _currentPos.x = x;
+    _currentPos.y = _group.position.y;
+    _currentPos.z = z;
+    _targetPos.x = x;
+    _targetPos.y = _group.position.y;
+    _targetPos.z = z;
 }
 
 /** Set the direction the character faces (radians, 0 = +Z). */
@@ -325,9 +354,26 @@ export function setWalking(walking) {
     _isWalking = walking;
 }
 
+/** Set walk speed (m/s) — scales animation speed. */
+export function setWalkSpeed(speed) {
+    _walkSpeed = Math.max(0.3, Math.min(speed, 5.0)); // Clamp 0.3-5 m/s
+}
+
 /** Called every frame from the main render loop. */
 export function animateCharacter(deltaTime) {
     if (!_group || !_body) return;
+
+    // ── Smooth position lerp (walk from A to B) ─────────────
+    const lerpFactorXZ = 1 - Math.exp(-LERP_SPEED_XZ * deltaTime);
+    const lerpFactorY = 1 - Math.exp(-LERP_SPEED_Y * deltaTime);
+
+    _currentPos.x += (_targetPos.x - _currentPos.x) * lerpFactorXZ;
+    _currentPos.z += (_targetPos.z - _currentPos.z) * lerpFactorXZ;
+    _currentPos.y += (_targetPos.y - _currentPos.y) * lerpFactorY;
+
+    _group.position.x = _currentPos.x;
+    _group.position.z = _currentPos.z;
+    _group.position.y = _currentPos.y;
 
     // ── Smooth rotation towards target angle ────────────────
     let angleDiff = _targetAngle - _facingAngle;
@@ -337,9 +383,11 @@ export function animateCharacter(deltaTime) {
     _facingAngle += angleDiff * 0.12; // Smooth turn
     _body.rotation.y = _facingAngle;
 
-    // ── Walk animation ──────────────────────────────────────
+    // ── Walk animation (speed-scaled) ────────────────────────
     if (_isWalking) {
-        _walkPhase += deltaTime * 8; // Walk speed
+        // Scale animation speed with real movement speed
+        const animSpeed = Math.max(4, _walkSpeed * 4); // Minimum 4, scales up
+        _walkPhase += deltaTime * animSpeed;
 
         const armSwing = Math.sin(_walkPhase) * 0.6;
         const legSwing = Math.sin(_walkPhase) * 0.5;
@@ -380,3 +428,4 @@ export function getCharacterPosition() {
     if (!_group) return { x: 0, y: 0, z: 0 };
     return { x: _group.position.x, y: _group.position.y, z: _group.position.z };
 }
+

@@ -3,12 +3,12 @@
 // ═══════════════════════════════════════════════════════════════
 
 import './style.css';
-import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo, setOrigin, getMap } from './world.js';
+import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo, setOrigin, getMap, getElevation } from './world.js';
 import { initNodes, syncNodes, animateNodes, getNodeMeshes, getNodeByMesh, getNodeCount } from './nodes.js';
 import { initFirebase, fetchNearbyMessages } from './firebase.js';
 import { startGPS, gpsToLocal, getPosition, haversine } from './gps.js';
 import { initUI, showCard, closeCard, hideLoadingScreen, showEmptyState, updateHUD, showToast } from './ui.js';
-import { initCharacter, updateCharacterPosition, setCharacterDirection, setWalking, animateCharacter } from './character.js';
+import { initCharacter, updateCharacterPosition, setTargetPosition, setCharacterDirection, setWalking, setWalkSpeed, animateCharacter } from './character.js';
 
 // ── State ─────────────────────────────────────────────────────
 let lastFetchTime = 0;
@@ -51,7 +51,6 @@ async function boot() {
         const dz = local.z - _prevLocal.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
 
-
         // Calculate movement
         if (dist > 0.5) { // Moved more than 0.5m
             // Set character direction (facing movement direction)
@@ -59,10 +58,16 @@ async function boot() {
             setCharacterDirection(angle);
             setWalking(true);
 
-            // Update character position in Three.js scene
-            updateCharacterPosition(update.lat, update.lng, local.x, local.z);
+            // Set walk speed from GPS speed data
+            if (update.speed) setWalkSpeed(update.speed);
 
-            // Move the map to follow the user
+            // Get elevation (now returns { elevation, onBuilding })
+            const elevationData = getElevation(update.lat, update.lng);
+
+            // Set target position — character will lerp smoothly to it
+            setTargetPosition(local.x, local.z, elevationData);
+
+            // Move the map to follow the user (center only, no bearing change)
             smoothTo(update.lat, update.lng);
 
             _prevLocal = { x: local.x, z: local.z };

@@ -134,43 +134,54 @@ export function raycastFromScreen(clientX, clientY, targets) {
   return _raycaster.intersectObjects(targets, true);
 }
 
-/** Get ground elevation (meters) at a specific lat/lng using Mapbox terrain data. */
+/** Get ground elevation (meters) at a specific lat/lng using Mapbox terrain data. 
+ *  Returns { elevation, onBuilding } for smooth character transitions. */
 export function getElevation(lat, lng) {
-  if (!_map) return 0;
+  if (!_map) return { elevation: 0, onBuilding: false };
 
   // Base terrain height
   let elevation = _map.queryTerrainElevation([lng, lat]) || 0;
+  let onBuilding = false;
 
   // Check for buildings to place character on roof
   const point = _map.project([lng, lat]);
-  // Query all layers, filter for buildings
-  const features = _map.queryRenderedFeatures(point).filter(f => {
-    const type = f.layer.type;
-    return type === 'fill-extrusion' || type === 'model' || f.layer.id.includes('building');
-  });
+  const features = _map.queryRenderedFeatures(point);
 
-  if (features.length > 0) {
-    // Find the max height among features
-    let maxHeight = 0;
-    for (const f of features) {
-      // Try to get explicit height
-      let h = f.properties.height || f.properties.render_height;
+  let maxHeight = 0;
+  for (const f of features) {
+    const layerType = f.layer.type;
+    const layerId = f.layer.id;
 
-      // Fallback: If it's a building but no height, assume ~15m (4-5 stories)
-      if (!h && (f.layer.type === 'fill-extrusion' || f.layer.type === 'model')) {
-        h = 15;
-      }
+    // Detect building layers: fill-extrusion, model, or ID containing building/3d/extrusion
+    const isBuilding = layerType === 'fill-extrusion' || layerType === 'model' ||
+      layerId.includes('building') || layerId.includes('3d') || layerId.includes('extrusion');
 
-      if (h && h > maxHeight) maxHeight = h;
+    if (!isBuilding) continue;
+
+    // Try multiple height sources (most reliable first)
+    let h = 0;
+
+    // 1. Paint property: fill-extrusion-height (most accurate for Standard style)
+    if (f.layer.paint && f.layer.paint['fill-extrusion-height'] != null) {
+      const paintH = f.layer.paint['fill-extrusion-height'];
+      if (typeof paintH === 'number') h = paintH;
     }
-    // Add height if found. Note: height is usually structural height.
-    // If it's a 3D model, we might not get precise roof height, but extrusion height works.
-    if (maxHeight > 0) {
-      elevation += maxHeight;
-    }
+
+    // 2. Feature properties (GeoJSON data)
+    if (!h) h = f.properties.height || f.properties.render_height || f.properties.max_height || 0;
+
+    // 3. Fallback: assume ~15m (4-5 stories) for detected extrusions with no height
+    if (!h && layerType === 'fill-extrusion') h = 15;
+
+    if (h > maxHeight) maxHeight = h;
   }
 
-  return elevation;
+  if (maxHeight > 0) {
+    elevation += maxHeight;
+    onBuilding = true;
+  }
+
+  return { elevation, onBuilding };
 }
 
 // ── Three.js Custom Layer (Mapbox CustomLayerInterface) ───────
