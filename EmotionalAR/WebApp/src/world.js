@@ -1,334 +1,160 @@
 // ═══════════════════════════════════════════════════════════════
-// Three.js 3D World — Camera, Lighting, Post-Processing
+// World — Mapbox GL JS primary renderer + Three.js custom layer
 // ═══════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { MAPBOX_ACCESS_TOKEN, TILE_ZOOM, latLonToTile } from './config.js';
+import mapboxgl from 'mapbox-gl';
+import { MAPBOX_ACCESS_TOKEN } from './config.js';
 
-let scene, camera, renderer, composer, controls;
-let clock;
-let _canvas;
-let _groundMesh = null;
-let _targetPos = new THREE.Vector3(0, 0, 0);
-let _currentPos = new THREE.Vector3(0, 0, 0);
+let _map = null;
+let _scene = null;
+let _camera = null;
+let _renderer = null;
+let _clock = null;
+let _originMercator = null;
+const _raycaster = new THREE.Raycaster();
 
-/** Initialize the 3D world. Returns { scene, camera, renderer, clock }. */
-export function initWorld(canvas) {
-  _canvas = canvas;
-  clock = new THREE.Clock();
+// ── Public API ────────────────────────────────────────────────
 
-  // ── Scene ─────────────────────────────────────────────────
-  scene = new THREE.Scene();
+/**
+ * Initialize the Mapbox GL map with Standard style and a Three.js
+ * custom layer for rendering character + emotion nodes.
+ * Returns { scene, clock } once the map style is loaded.
+ */
+export function initWorld() {
+  return new Promise((resolve) => {
+    mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+    _clock = new THREE.Clock();
 
-  // Warm Golden Hour Sky (Gradient)
-  const skyGeo = new THREE.SphereGeometry(2000, 32, 32);
-  const skyMat = new THREE.ShaderMaterial({
-    uniforms: {
-      uTopColor: { value: new THREE.Color('#6B4C7D') },
-      uHorizonColor: { value: new THREE.Color('#FFAB76') },
-      uBottomColor: { value: new THREE.Color('#FFD580') },
-    },
-    vertexShader: `
-      varying vec3 vWorldPos;
-      void main() {
-        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
-        gl_Position = projectionMatrix * viewMatrix * vec4(vWorldPos, 1.0);
+    // Create the Three.js scene early so initNodes/initCharacter
+    // can add objects to it before the map finishes loading.
+    _scene = new THREE.Scene();
+
+    // Lighting
+    const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+    _scene.add(ambient);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(50, 80, 100);
+    _scene.add(dir);
+
+    // Full-screen Mapbox GL map
+    _map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/standard',
+      center: [103.68717, 1.35400],
+      zoom: 18.44,
+      pitch: 0.00,
+      bearing: 0.00,
+      antialias: true,
+      config: {
+        basemap: {
+          showPointOfInterestLabels: false,
+          showPlaceLabels: false,
+          showRoadLabels: false,
+          showTransitLabels: false,
+          showLandmarkIconLabels: false
+        }
       }
-    `,
-    fragmentShader: `
-      uniform vec3 uTopColor;
-      uniform vec3 uHorizonColor;
-      uniform vec3 uBottomColor;
-      varying vec3 vWorldPos;
-      void main() {
-        float t = normalize(vWorldPos).y;
-        vec3 color = mix(uBottomColor, uHorizonColor, smoothstep(-0.2, 0.1, t));
-        color = mix(color, uTopColor, smoothstep(0.1, 0.8, t));
-        gl_FragColor = vec4(color, 1.0);
+    });
+
+    _map.on('style.load', () => {
+      _map.addLayer(createThreeJSLayer());
+      console.log('[World] Mapbox GL Standard + Three.js layer ready.');
+      resolve({ scene: _scene, clock: _clock });
+    });
+
+    // Safety timeout
+    setTimeout(() => {
+      if (!_renderer) {
+        console.warn('[World] Mapbox load timed out. Resolving anyway.');
+        resolve({ scene: _scene, clock: _clock });
       }
-    `,
-    side: THREE.BackSide,
-    depthWrite: false,
+    }, 15000);
   });
-  scene.add(new THREE.Mesh(skyGeo, skyMat));
-
-  // Warm Fog — slightly denser for cosier close-up feel
-  scene.fog = new THREE.FogExp2(0xFFAB76, 0.004);
-
-  // ── Camera (FOV 60, positioned behind & above character) ──
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 4000);
-  // Start behind the character (character faces +Z), camera at +Z offset, 5m above
-  camera.position.set(0, 5, 10);
-  camera.lookAt(0, 0, 0);
-
-  // ── Renderer ──────────────────────────────────────────────
-  renderer = new THREE.WebGLRenderer({
-    canvas,
-    antialias: true,
-    alpha: false,
-    powerPreference: 'high-performance',
-  });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
-  // ── Post-processing: Bloom ────────────────────────────────
-  composer = new EffectComposer(renderer);
-  composer.addPass(new RenderPass(scene, camera));
-
-  const bloom = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    0.6,   // strength
-    0.5,   // radius
-    0.85   // threshold
-  );
-  composer.addPass(bloom);
-
-  // ── Controls (tighter orbit for close-to-character feel) ──
-  controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
-  controls.minDistance = 3;
-  controls.maxDistance = 80;
-  controls.maxPolarAngle = Math.PI / 2.1;
-  controls.enablePan = true;
-  controls.screenSpacePanning = false;
-
-  // ── Lighting (Golden Hour) ────────────────────────────────
-  const ambient = new THREE.AmbientLight(0xFFD580, 0.4);
-  scene.add(ambient);
-
-  const sunLight = new THREE.DirectionalLight(0xFFAB76, 2.0);
-  sunLight.position.set(-200, 300, -200);
-  sunLight.castShadow = true;
-  sunLight.shadow.mapSize.width = 2048;
-  sunLight.shadow.mapSize.height = 2048;
-  sunLight.shadow.camera.left = -500;
-  sunLight.shadow.camera.right = 500;
-  sunLight.shadow.camera.top = 500;
-  sunLight.shadow.camera.bottom = -500;
-  scene.add(sunLight);
-
-  // Fill light from opposite side (cool blue shadows)
-  const fillLight = new THREE.DirectionalLight(0x6B4C7D, 0.5);
-  fillLight.position.set(500, 200, 500);
-  scene.add(fillLight);
-
-  // ── Particles ─────────────────────────────────────────────
-  createParticles();
-
-  // Stylized Ground
-  initGround(scene);
-
-  // ── Resize ────────────────────────────────────────────────
-  window.addEventListener('resize', onResize);
-
-  return { scene, camera, renderer, clock };
-}
-
-// ── Ground Plane (topo-v4 raster texture from MapTiler) ──
-
-export function initGround(scene) {
-  const groundGeo = new THREE.PlaneGeometry(1000, 1000, 1, 1);
-  const groundMat = new THREE.MeshStandardMaterial({
-    color: '#91C483',
-    roughness: 1.0,
-    metalness: 0,
-    side: THREE.DoubleSide
-  });
-  _groundMesh = new THREE.Mesh(groundGeo, groundMat);
-  _groundMesh.rotation.x = -Math.PI / 2;
-  _groundMesh.receiveShadow = true;
-  _groundMesh.name = 'ground';
-  scene.add(_groundMesh);
 }
 
 /**
- * Load MapTiler topo-v4 raster tiles and apply as ground texture.
- * Stitches a 3×3 grid of tiles for wider coverage.
+ * Set the GPS origin for the Three.js coordinate system.
+ * All Three.js objects are positioned in meters relative to this point.
  */
-export function updateGroundTexture(lat, lng) {
-  const center = latLonToTile(lat, lng, TILE_ZOOM);
-  const GRID = 3;
-  const TILE_PX = 512;
-  const totalPx = GRID * TILE_PX;
-
-  const stitchCanvas = document.createElement('canvas');
-  stitchCanvas.width = totalPx;
-  stitchCanvas.height = totalPx;
-  const ctx = stitchCanvas.getContext('2d');
-
-  let loaded = 0;
-  const total = GRID * GRID;
-
-  console.log(`[Ground] Loading Mapbox streets tiles for ${lat.toFixed(5)}, ${lng.toFixed(5)}...`);
-
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const tx = center.x + dx;
-      const ty = center.y + dy;
-      const url = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/${TILE_ZOOM}/${tx}/${ty}@2x?access_token=${MAPBOX_ACCESS_TOKEN}`;
-
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-
-      const gx = dx + 1;
-      const gy = dy + 1;
-
-      img.onload = () => {
-        ctx.drawImage(img, gx * TILE_PX, gy * TILE_PX, TILE_PX, TILE_PX);
-        loaded++;
-        if (loaded === total) applyGroundTexture(stitchCanvas);
-      };
-      img.onerror = () => {
-        console.warn(`[Ground] Failed: streets/${TILE_ZOOM}/${tx}/${ty}`);
-        loaded++;
-        if (loaded === total) applyGroundTexture(stitchCanvas);
-      };
-      img.src = url;
-    }
-  }
+export function setOrigin(lat, lng) {
+  _originMercator = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], 0);
+  _map.setCenter([lng, lat]);
+  console.log(`[World] Origin set: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
 }
 
-function applyGroundTexture(canvas) {
-  if (!_groundMesh) return;
-
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
-  texture.needsUpdate = true;
-
-  if (_groundMesh.material.map) _groundMesh.material.map.dispose();
-  _groundMesh.material.dispose();
-
-  _groundMesh.material = new THREE.MeshStandardMaterial({
-    map: texture,
-    roughness: 0.95,
-    metalness: 0,
-    side: THREE.DoubleSide
-  });
-
-  console.log('[Ground] Topo-v4 texture applied.');
+/** Smoothly move the map to follow the user's GPS. */
+export function smoothTo(lat, lng) {
+  if (!_map) return;
+  _map.easeTo({ center: [lng, lat], duration: 500 });
 }
 
-/** Glide the world/camera to a new local position smoothly. */
-export function smoothTo(x, z) {
-  _targetPos.set(x, 0, z);
+/** No-op — Mapbox handles its own render loop. */
+export function updateWorld() { }
+
+export function getScene() { return _scene; }
+export function getClock() { return _clock; }
+export function getMap() { return _map; }
+
+/** Raycast from screen coordinates into the Three.js scene. */
+export function raycastFromScreen(clientX, clientY, targets) {
+  if (!_camera || !targets || targets.length === 0) return [];
+
+  const canvas = _map.getCanvas();
+  const rect = canvas.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1
+  );
+
+  _raycaster.setFromCamera(mouse, _camera);
+  return _raycaster.intersectObjects(targets, true);
 }
 
-export function updateWorldBounds(lat, lng) {
-  // Placeholder for future use
-}
+// ── Three.js Custom Layer (Mapbox CustomLayerInterface) ───────
 
-// ── Particles (Dust motes) ─────────────────────────────────────
+function createThreeJSLayer() {
+  return {
+    id: 'threejs-overlay',
+    type: 'custom',
+    renderingMode: '3d',
 
-function createParticles() {
-  const count = 500;
-  const geo = new THREE.BufferGeometry();
-  const positions = new Float32Array(count * 3);
-  const sizes = new Float32Array(count);
+    onAdd(map, gl) {
+      _camera = new THREE.Camera();
 
-  for (let i = 0; i < count; i++) {
-    positions[i * 3] = (Math.random() - 0.5) * 300;
-    positions[i * 3 + 1] = Math.random() * 60;
-    positions[i * 3 + 2] = (Math.random() - 0.5) * 300;
-    sizes[i] = Math.random() * 2 + 0.5;
-  }
-
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-
-  const mat = new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: { value: 0 },
-      uColor: { value: new THREE.Color('#FFD580') },
+      // Share the Mapbox WebGL context with Three.js
+      _renderer = new THREE.WebGLRenderer({
+        canvas: map.getCanvas(),
+        context: gl,
+        antialias: true,
+      });
+      _renderer.autoClear = false;
     },
-    vertexShader: `
-      attribute float aSize;
-      uniform float uTime;
-      varying float vAlpha;
-      void main() {
-        vec3 pos = position;
-        pos.y += sin(uTime * 0.2 + position.x * 0.1) * 2.0;
-        pos.x += cos(uTime * 0.1 + position.z * 0.1) * 1.0;
-        vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
-        gl_PointSize = aSize * (500.0 / -mvPos.z);
-        gl_Position = projectionMatrix * mvPos;
-        vAlpha = 0.4 + sin(uTime + position.z) * 0.2;
-      }
-    `,
-    fragmentShader: `
-      uniform vec3 uColor;
-      varying float vAlpha;
-      void main() {
-        float d = length(gl_PointCoord - 0.5);
-        if (d > 0.5) discard;
-        float alpha = smoothstep(0.5, 0.0, d) * vAlpha;
-        gl_FragColor = vec4(uColor, alpha);
-      }
-    `,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  });
 
-  scene.add(new THREE.Points(geo, mat));
-}
+    render(gl, matrix) {
+      if (!_originMercator || !_renderer) return;
 
-// ── Update ─────────────────────────────────────────────────────
+      const s = _originMercator.meterInMercatorCoordinateUnits();
 
-export function updateWorld() {
-  const t = clock.getElapsedTime();
+      // Model transform: origin → mercator → scale to meters → rotate Y-up
+      const modelTransform = new THREE.Matrix4()
+        .makeTranslation(_originMercator.x, _originMercator.y, _originMercator.z)
+        .scale(new THREE.Vector3(s, -s, s))
+        .multiply(
+          new THREE.Matrix4().makeRotationAxis(
+            new THREE.Vector3(1, 0, 0),
+            Math.PI / 2
+          )
+        );
 
-  // Smooth position interpolation (Pokémon Go style)
-  const lerpFactor = 0.05;
-  _currentPos.lerp(_targetPos, lerpFactor);
+      // Combine Mapbox projection with our model transform
+      _camera.projectionMatrix = new THREE.Matrix4()
+        .fromArray(matrix)
+        .multiply(modelTransform);
 
-  // Follow the current position
-  controls.target.copy(_currentPos);
-
-  // Update particles
-  scene.children.forEach(child => {
-    if (child.isPoints && child.material.uniforms?.uTime) {
-      child.material.uniforms.uTime.value = t;
+      _renderer.resetState();
+      _renderer.render(_scene, _camera);
+      _map.triggerRepaint(); // Continuous repaint for animations
     }
-  });
-
-  controls.update();
-  composer.render();
-}
-
-export function getScene() { return scene; }
-export function getCamera() { return camera; }
-export function getRenderer() { return renderer; }
-export function getClock() { return clock; }
-
-// ── Raycasting ─────────────────────────────────────────────────
-
-const _raycaster = new THREE.Raycaster();
-const _mouse = new THREE.Vector2();
-
-export function raycastFromScreen(x, y, objects) {
-  _mouse.x = (x / window.innerWidth) * 2 - 1;
-  _mouse.y = -(y / window.innerHeight) * 2 + 1;
-  _raycaster.setFromCamera(_mouse, camera);
-  return _raycaster.intersectObjects(objects, true);
-}
-
-// ── Resize ─────────────────────────────────────────────────────
-
-function onResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
+  };
 }

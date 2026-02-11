@@ -3,23 +3,17 @@
 // ═══════════════════════════════════════════════════════════════
 
 import './style.css';
-import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo, updateGroundTexture } from './world.js';
+import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo, setOrigin, getMap } from './world.js';
 import { initNodes, syncNodes, animateNodes, getNodeMeshes, getNodeByMesh, getNodeCount } from './nodes.js';
 import { initFirebase, fetchNearbyMessages } from './firebase.js';
-import { initBuildings, updateBuildings, getBuildingCount } from './buildings.js';
 import { startGPS, gpsToLocal, getPosition, haversine } from './gps.js';
 import { initUI, showCard, closeCard, hideLoadingScreen, showEmptyState, updateHUD, showToast } from './ui.js';
-import { initEnvironment, updateEnvironment, getEnvironmentCount } from './environment.js';
 import { initCharacter, updateCharacterPosition, setCharacterDirection, setWalking, animateCharacter } from './character.js';
 
 // ── State ─────────────────────────────────────────────────────
 let lastFetchTime = 0;
 const FETCH_INTERVAL = 10000; // 10s
-let lastLoadPos = null;
-const REFRESH_DIST = 150; // Refresh map every 150m
 let _prevLocal = { x: 0, z: 0 }; // Previous position for direction calc
-let _buildingsLoaded = false;
-let _environmentLoaded = false;
 
 // ── Boot ──────────────────────────────────────────────────────
 
@@ -33,26 +27,21 @@ async function boot() {
             console.warn('[Boot] Safety timeout triggered. Forcing load.');
             hideLoadingScreen();
         }
-    }, 15000); // Extended to 15s for environment loading
+    }, 15000);
 
-    // 1. Init Three.js
-    const canvas = document.getElementById('world-canvas');
-    const { scene, clock } = initWorld(canvas);
+    // 1. Init Mapbox GL + Three.js custom layer
+    const { scene, clock } = await initWorld();
     initNodes(scene);
 
-    // 2. Init Character, Environment & UI
+    // 2. Init Character & UI
     initUI(() => { /* node deselect callback */ });
     initCharacter(scene);
-    initEnvironment(scene);
-    initBuildings(scene);
 
     // 3. Init Firebase
     await initFirebase();
 
     // 4. GPS + first fetch
     const pos = await startGPS((update) => {
-        if (!lastLoadPos) return;
-
         // Calculate local XZ relative to the start point
         const local = gpsToLocal(update.lat, update.lng, pos.lat, pos.lng);
 
@@ -67,11 +56,11 @@ async function boot() {
             setCharacterDirection(angle);
             setWalking(true);
 
-            // Update character position
+            // Update character position in Three.js scene
             updateCharacterPosition(local.x, local.z);
 
-            // Smoothly glide the camera/view
-            smoothTo(local.x, local.z);
+            // Move the map to follow the user
+            smoothTo(update.lat, update.lng);
 
             _prevLocal = { x: local.x, z: local.z };
         } else {
@@ -80,31 +69,21 @@ async function boot() {
 
         // Periodic content sync
         fetchAndSync();
-
-        // Neighborhood refresh
-        const distFromLastLoad = haversine(lastLoadPos.lat, lastLoadPos.lng, update.lat, update.lng);
-        if (distFromLastLoad > REFRESH_DIST) {
-            console.log(`[Main] Moved ${distFromLastLoad.toFixed(0)}m. Refreshing neighborhood.`);
-            lastLoadPos = { lat: update.lat, lng: update.lng };
-            updateGroundTexture(update.lat, update.lng);
-            loadEnvironmentWithRetry(update.lat, update.lng);
-        }
     });
 
-    lastLoadPos = { lat: pos.lat, lng: pos.lng };
+    // Set GPS origin for the Three.js coordinate system
+    setOrigin(pos.lat, pos.lng);
 
-    // ── Load Environment + Ground Texture ─────────────────────
-    updateGroundTexture(pos.lat, pos.lng);
-    await loadEnvironmentWithRetry(pos.lat, pos.lng);
+    // First fetch of nearby messages
     await fetchAndSync();
 
     // 5. Hide loading screen
     setTimeout(hideLoadingScreen, 500);
 
-    // 6. Tap handler
-    setupTapHandler(canvas);
+    // 6. Tap handler (use Mapbox's canvas)
+    setupTapHandler(getMap().getCanvas());
 
-    // 7. RENDER LOOP
+    // 7. RENDER LOOP (for Three.js animations — Mapbox handles map rendering)
     function animate() {
         requestAnimationFrame(animate);
         const t = clock.getElapsedTime();
@@ -112,7 +91,6 @@ async function boot() {
 
         animateNodes(t);
         animateCharacter(delta);
-        updateWorld();
 
         // Periodic re-fetch
         if (performance.now() - lastFetchTime > FETCH_INTERVAL) {
@@ -122,48 +100,6 @@ async function boot() {
     animate();
 
     console.log('[EmotionalAR] Ready.');
-}
-
-// ── Environment Loading with Retry ────────────────────────────
-
-async function loadEnvironmentWithRetry(lat, lng) {
-    // Load buildings
-    try {
-        await updateBuildings(lat, lng);
-        _buildingsLoaded = true;
-        console.log(`[Boot] Buildings: ✓ (${getBuildingCount()} rendered)`);
-    } catch (err) {
-        console.error('[Boot] Buildings: ✗', err.message);
-        // Retry once after 3s
-        setTimeout(async () => {
-            try {
-                await updateBuildings(lat, lng);
-                _buildingsLoaded = true;
-                console.log(`[Boot] Buildings (retry): ✓ (${getBuildingCount()} rendered)`);
-            } catch (retryErr) {
-                console.error('[Boot] Buildings (retry): ✗', retryErr.message);
-            }
-        }, 3000);
-    }
-
-    // Load environment features
-    try {
-        const count = await updateEnvironment(lat, lng);
-        _environmentLoaded = true;
-        console.log(`[Boot] Environment: ✓ (${count} features)`);
-    } catch (err) {
-        console.error('[Boot] Environment: ✗', err.message);
-        // Retry once after 5s
-        setTimeout(async () => {
-            try {
-                const count = await updateEnvironment(lat, lng);
-                _environmentLoaded = true;
-                console.log(`[Boot] Environment (retry): ✓ (${count} features)`);
-            } catch (retryErr) {
-                console.error('[Boot] Environment (retry): ✗', retryErr.message);
-            }
-        }, 5000);
-    }
 }
 
 // ── Fetch & Sync ──────────────────────────────────────────────

@@ -1,29 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <meta name="description" content="EmotionalAR — Anonymous emotional messages visualized as glowing 3D nodes in your surroundings." />
+  <meta name="description"
+    content="EmotionalAR — Anonymous emotional messages visualized as glowing 3D nodes in your surroundings." />
   <meta name="theme-color" content="#0f0f1a" />
   <title>EmotionalAR</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/style.css" />
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    /* Full-screen Mapbox GL map */
+    #map {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+    }
+  </style>
 </head>
+
 <body>
+  <!-- Mapbox GL map (primary renderer) -->
+  <div id="map"></div>
+
   <!-- Loading Screen -->
   <div id="loading-screen">
     <div class="loading-content">
       <div class="loading-orb"></div>
       <h1 class="loading-title">EmotionalAR</h1>
       <p class="loading-sub">Finding nearby emotions…</p>
-      <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+      <div class="loading-bar">
+        <div class="loading-bar-fill"></div>
+      </div>
     </div>
   </div>
-
-  <!-- Three.js Canvas -->
-  <canvas id="world-canvas"></canvas>
 
   <!-- HUD -->
   <div id="hud">
@@ -32,7 +49,10 @@
       <span id="hud-count" class="hud-badge">0 nearby</span>
     </div>
     <button id="btn-new-message" class="fab" title="Share how you're feeling">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="12" y1="5" x2="12" y2="19" />
+        <line x1="5" y1="12" x2="19" y2="12" />
+      </svg>
     </button>
   </div>
 
@@ -83,4 +103,5 @@
 
   <script type="module" src="/src/main.js"></script>
 </body>
+
 </html>
