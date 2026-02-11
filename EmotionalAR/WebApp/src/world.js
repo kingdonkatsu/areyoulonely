@@ -133,8 +133,33 @@ export function raycastFromScreen(clientX, clientY, targets) {
 /** Get ground elevation (meters) at a specific lat/lng using Mapbox terrain data. */
 export function getElevation(lat, lng) {
   if (!_map) return 0;
-  // Mapbox Standard style has terrain enabled by default
-  return _map.queryTerrainElevation([lng, lat]) || 0;
+
+  // Base terrain height
+  let elevation = _map.queryTerrainElevation([lng, lat]) || 0;
+
+  // Check for buildings to place character on roof
+  const point = _map.project([lng, lat]);
+  // Query all layers, filter for buildings
+  const features = _map.queryRenderedFeatures(point).filter(f =>
+    f.layer.id.includes('building') ||
+    (f.properties && (f.properties.height || f.properties.render_height))
+  );
+
+  if (features.length > 0) {
+    // Find the max height among features
+    let maxHeight = 0;
+    for (const f of features) {
+      const h = f.properties.height || f.properties.render_height || (f.layer.id.includes('building') ? 10 : 0);
+      if (h > maxHeight) maxHeight = h;
+    }
+    // Add height if found. Note: height is usually structural height.
+    // If it's a 3D model, we might not get precise roof height, but extrusion height works.
+    if (maxHeight > 0) {
+      elevation += maxHeight;
+    }
+  }
+
+  return elevation;
 }
 
 // ── Three.js Custom Layer (Mapbox CustomLayerInterface) ───────
