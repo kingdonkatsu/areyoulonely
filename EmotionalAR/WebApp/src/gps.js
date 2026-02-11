@@ -39,7 +39,7 @@ export function startGPS(onUpdate) {
                             console.warn('[GPS] Watch error:', err.message);
                         }
                     },
-                    { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 }
+                    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
                 );
             },
             (err) => {

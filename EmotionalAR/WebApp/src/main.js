@@ -14,6 +14,7 @@ import { initCharacter, updateCharacterPosition, setCharacterDirection, setWalki
 let lastFetchTime = 0;
 const FETCH_INTERVAL = 10000; // 10s
 let _prevLocal = { x: 0, z: 0 }; // Previous position for direction calc
+let idleTimer = null; // Timer to check if user stopped walking
 
 // ── Boot ──────────────────────────────────────────────────────
 
@@ -50,6 +51,8 @@ async function boot() {
         const dz = local.z - _prevLocal.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
 
+
+        // Calculate movement
         if (dist > 0.5) { // Moved more than 0.5m
             // Set character direction (facing movement direction)
             const angle = Math.atan2(dx, dz);
@@ -57,12 +60,18 @@ async function boot() {
             setWalking(true);
 
             // Update character position in Three.js scene
-            updateCharacterPosition(local.x, local.z);
+            updateCharacterPosition(update.lat, update.lng, local.x, local.z);
 
             // Move the map to follow the user
             smoothTo(update.lat, update.lng);
 
             _prevLocal = { x: local.x, z: local.z };
+
+            // Reset idle timer
+            if (idleTimer) clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => {
+                setWalking(false);
+            }, 2500); // Stop walking if no update after 2.5s
         } else {
             setWalking(false);
         }

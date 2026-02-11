@@ -4,6 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
+import { getElevation } from './world.js';
 
 let _scene = null;
 let _group = null;         // Root group for the entire character
@@ -306,11 +307,12 @@ function buildShadow(parent) {
 // PUBLIC API
 // ═══════════════════════════════════════════════════════════════
 
-/** Move character to a local XZ position. */
-export function updateCharacterPosition(x, z) {
+/** Move character to a local XZ position, adjusting Y based on terrain elevation. */
+export function updateCharacterPosition(lat, lng, x, z) {
     if (!_group) return;
     _group.position.x = x;
     _group.position.z = z;
+    _group.position.y = getElevation(lat, lng);
 }
 
 /** Set the direction the character faces (radians, 0 = +Z). */

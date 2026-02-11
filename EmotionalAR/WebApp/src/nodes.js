@@ -5,12 +5,10 @@
 import * as THREE from 'three';
 import { nodeGlowVertex, nodeGlowFragment, createNodeUniforms } from './shaders/nodeGlow.js';
 import { gpsToLocal, getPosition } from './gps.js';
-// No longer need getTilesRenderer, we raycast against the scene
+import { getElevation } from './world.js';
 
 const nodes = new Map();   // id → { mesh, data, discs[], dots[], group }
 let _scene = null;
-const _raycaster = new THREE.Raycaster();
-const _down = new THREE.Vector3(0, -1, 0);
 
 const EMOTION_COLORS = {
     // Warm (Joy, Hope, Comfort)
@@ -68,9 +66,10 @@ function spawnNode(msg) {
     // Initial height 50m to raycast down
     group.position.set(local.x, 50, local.z);
 
-    // Find ground height if tiles exist
-    const groundY = findGroundHeight(local.x, local.z) || 0;
-    // Hover 1.5m above ground/building
+    // Get elevation from Mapbox terrain
+    const groundY = getElevation(msg.latitude, msg.longitude) || 0;
+
+    // Hover 1.5m above ground
     group.position.y = groundY + 1.5;
 
     group.name = `node_${msg.id}`;
@@ -100,7 +99,7 @@ function spawnNode(msg) {
     group.add(mesh);
 
     // Inner glow point light
-    const light = new THREE.PointLight(color, intensity, 3);
+    const light = new THREE.PointLight(color, intensity * 2.0, 5);
     light.position.set(0, 0, 0);
     group.add(light);
 
@@ -130,21 +129,7 @@ function spawnNode(msg) {
     nodes.set(msg.id, entry);
 }
 
-function findGroundHeight(x, z) {
-    if (!_scene) return 0;
 
-    _raycaster.set(new THREE.Vector3(x, 1000, z), _down);
-    // Intersect with anything in the scene (ground, buildings)
-    const hits = _raycaster.intersectObjects(_scene.children, true);
-
-    // Find the highest point that isn't a node itself
-    for (const hit of hits) {
-        if (!hit.object.name.includes('node')) {
-            return hit.point.y;
-        }
-    }
-    return 0;
-}
 
 function createResponseShard(color, index) {
     const geo = new THREE.OctahedronGeometry(0.2, 0);
@@ -202,11 +187,11 @@ export function animateNodes(time) {
         }
 
         // Gentle breathing animation (scale sine wave)
-        const breathe = 1 + Math.sin(time * 1.5 + id.charCodeAt(0)) * 0.05;
-        mesh.scale.setScalar(breathe); // Apply to main crystal
+        const breathe = 1 + Math.sin(time * 1.5 + id.charCodeAt(0)) * 0.15;
+        mesh.scale.setScalar(breathe);
 
         // Float animation relative to baseY
-        group.position.y = baseY + Math.sin(time * 0.5 + id.charCodeAt(0)) * 0.2;
+        group.position.y = baseY + Math.sin(time * 0.5 + id.charCodeAt(0)) * 0.3;
 
         // Rotate
         group.rotation.y += 0.003;

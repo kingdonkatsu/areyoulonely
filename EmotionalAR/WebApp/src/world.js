@@ -41,13 +41,19 @@ export function initWorld() {
     _map = new mapboxgl.Map({
       container: 'map',
       style: 'mapbox://styles/mapbox/standard',
-      center: [103.68717, 1.35400],
-      zoom: 18.44,
-      pitch: 0.00,
-      bearing: 0.00,
+      center: [0, 0],
+      zoom: 18,
+      minZoom: 17.5, // Strict limit: roughly 300m view radius
+      pitch: 60,       // Tilt for 3D view
+      bearing: 0,
       antialias: true,
+      interactive: true,
+      dragRotate: true,
+      pitchWithRotate: true,
+      touchZoomRotate: true,
       config: {
         basemap: {
+          lightPreset: 'dawn',
           showPointOfInterestLabels: false,
           showPlaceLabels: false,
           showRoadLabels: false,
@@ -81,6 +87,13 @@ export function setOrigin(lat, lng) {
   _originMercator = mapboxgl.MercatorCoordinate.fromLngLat([lng, lat], 0);
   _map.setCenter([lng, lat]);
   console.log(`[World] Origin set: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+
+  // Restrict map bounds to ~300m around start (±0.003 degrees)
+  const bounds = new mapboxgl.LngLatBounds(
+    [lng - 0.003, lat - 0.003],
+    [lng + 0.003, lat + 0.003]
+  );
+  _map.setMaxBounds(bounds);
 }
 
 /** Smoothly move the map to follow the user's GPS. */
@@ -102,13 +115,26 @@ export function raycastFromScreen(clientX, clientY, targets) {
 
   const canvas = _map.getCanvas();
   const rect = canvas.getBoundingClientRect();
-  const mouse = new THREE.Vector2(
-    ((clientX - rect.left) / rect.width) * 2 - 1,
-    -((clientY - rect.top) / rect.height) * 2 + 1
-  );
+  const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-  _raycaster.setFromCamera(mouse, _camera);
+  // Unproject from NDC (Clip Space) back to Local Space
+  // projectionMatrix includes View * Model, so inverse takes us to Local
+  const inv = new THREE.Matrix4().copy(_camera.projectionMatrix).invert();
+
+  const origin = new THREE.Vector3(x, y, -1).applyMatrix4(inv);
+  const target = new THREE.Vector3(x, y, 1).applyMatrix4(inv);
+  const dir = target.sub(origin).normalize();
+
+  _raycaster.set(origin, dir);
   return _raycaster.intersectObjects(targets, true);
+}
+
+/** Get ground elevation (meters) at a specific lat/lng using Mapbox terrain data. */
+export function getElevation(lat, lng) {
+  if (!_map) return 0;
+  // Mapbox Standard style has terrain enabled by default
+  return _map.queryTerrainElevation([lng, lat]) || 0;
 }
 
 // ── Three.js Custom Layer (Mapbox CustomLayerInterface) ───────
