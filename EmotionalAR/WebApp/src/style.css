@@ -577,3 +577,392 @@ body {
     padding: 20px 16px 28px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   New Glassmorphism UI (Non-Tailwind)
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --color-primary: #13c8ec;
+  --color-mist-surface: rgba(15, 23, 42, 0.85);
+  /* Dark opaque glass */
+  --color-mist-border: rgba(255, 255, 255, 0.15);
+}
+
+/* Animations */
+@keyframes subtle-pulse {
+
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.8;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes ping {
+
+  75%,
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.animate-pulse-icon {
+  animation: subtle-pulse 3s infinite ease-in-out;
+}
+
+.animate-ping-ring {
+  animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Glass Card Container */
+.glass-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 2.5rem;
+  background-color: var(--color-mist-surface);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--color-mist-border);
+  box-shadow: 0 25px 50px -12px rgba(19, 200, 236, 0.15);
+  padding: 2rem;
+  color: white;
+}
+
+.glass-card-container {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 28rem;
+  /* max-w-md */
+  z-index: 50;
+  transition: all 0.3s ease;
+}
+
+.glass-card-container.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 20px);
+}
+
+/* Noise Texture */
+.bg-noise {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Metallic Button */
+.metallic-btn {
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #cbd5e1 0%, #94a3b8 50%, #64748b 100%);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  cursor: pointer;
+  border: none;
+}
+
+.metallic-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+}
+
+.btn-text {
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  color: #1e293b;
+  /* Slate-800 */
+  letter-spacing: 0.05em;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+}
+
+/* Typography & Layout Helpers */
+.flex-row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.flex-row-gap {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.flex-col-gap {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: relative;
+  z-index: 10;
+}
+
+.icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 9999px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(19, 200, 236, 0.2);
+}
+
+.header-text h2 {
+  font-size: 1.125rem;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  margin: 0;
+}
+
+.header-sub {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 300;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.dot {
+  width: 0.25rem;
+  height: 0.25rem;
+  background-color: rgba(255, 255, 255, 0.3);
+  border-radius: 9999px;
+}
+
+.quote-text {
+  font-size: 1.25rem;
+  /* xl */
+  font-weight: 300;
+  line-height: 1.6;
+  opacity: 0.9;
+  margin: 0.5rem 0;
+}
+
+.responses-label {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 300;
+  margin-bottom: 0.25rem;
+}
+
+.speech-bubble {
+  padding: 1rem;
+  border-radius: 1rem;
+  border-bottom-left-radius: 0.125rem;
+  background-color: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 300;
+  font-style: italic;
+  font-size: 0.875rem;
+}
+
+.speech-bubble-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.divider {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(to right, transparent, rgba(255, 255, 255, 0.1), transparent);
+  margin: 0.25rem 0;
+}
+
+.footer-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 300;
+}
+
+/* Close Button overrides */
+.btn-close-ghost {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 0.5rem;
+  transition: color 0.2s;
+}
+
+.btn-close-ghost:hover {
+  color: white;
+}
+
+/* Input Overlay */
+.glass-input-card {
+  position: relative;
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.25rem;
+  border-radius: 2rem;
+  overflow: hidden;
+  background-color: var(--color-mist-surface);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--color-mist-border);
+  box-shadow: 0 25px 50px -12px rgba(19, 200, 236, 0.15);
+  /* Matched Cyan Glow */
+  margin: 0 1.5rem;
+}
+
+.glass-textarea {
+  width: 100%;
+  height: 8rem;
+  background-color: rgba(255, 255, 255, 0.03);
+  /* Lighter/Glassier */
+  border-radius: 0.75rem;
+  padding: 1rem;
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  resize: none;
+  font-size: 1.125rem;
+  font-weight: 300;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.glass-textarea:focus {
+  border-color: rgba(19, 200, 236, 0.5);
+  box-shadow: 0 0 0 1px rgba(19, 200, 236, 0.5);
+}
+
+.btn-ghost-pill {
+  padding: 0.75rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  background: transparent;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-ghost-pill:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+}
+
+/* Metallic Pill Button (Matches .metallic-btn) */
+.btn-primary-pill {
+  padding: 0.75rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #cbd5e1 0%, #94a3b8 50%, #64748b 100%);
+  color: #0f172a;
+  border: none;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.btn-primary-pill:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary-pill:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  background: #334155;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.input-overlay-bg {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.3s;
+}
+
+.input-overlay-bg.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Emotion Selector Vanilla Replacements */
+.emotion-selector-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  padding: 0.5rem 0;
+}
+
+.emotion-pill-btn {
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0.6;
+}
+
+.emotion-pill-btn:hover {
+  transform: scale(1.05);
+  opacity: 1;
+}
+
+.emotion-pill-btn:active {
+  transform: scale(0.95);
+}
+
+.emotion-pill-btn.selected {
+  outline: 2px solid white;
+  opacity: 1;
+  transform: scale(1.05);
+}

@@ -13,6 +13,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/style.css" />
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.0/mapbox-gl.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet" />
   <style>
     /* Full-screen Mapbox GL map */
     #map {
@@ -22,6 +23,11 @@
       width: 100%;
       height: 100%;
       z-index: 0;
+    }
+
+    /* Ensure glass card container handles visibility logic */
+    #message-card.hidden {
+      display: none;
     }
   </style>
 </head>
@@ -65,43 +71,90 @@
     </button>
   </div>
 
-  <!-- Message Card -->
-  <div id="message-card" class="card hidden">
-    <button id="card-close" class="card-close">&times;</button>
-    <div class="card-emotion">
-      <span id="card-badge" class="emotion-badge">HOPE</span>
+  <!-- Message Card (Glassmorphism) -->
+  <div id="message-card" class="glass-card-container hidden">
+    <div class="glass-card">
+      <div class="bg-noise"></div>
+      <div class="flex-col-gap">
+        <!-- Header -->
+        <div class="flex-row-between">
+          <div class="flex-row-gap">
+            <div class="icon-wrapper">
+              <svg class="animate-pulse-icon" id="card-pulse-icon" width="24" height="24" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 4.5v15m7.5-7.5h-15" stroke-linecap="round" stroke-linejoin="round"></path>
+                <circle cx="12" cy="12" r="9" stroke-linecap="round" stroke-linejoin="round"></circle>
+              </svg>
+              <div class="pulse-ring animate-ping-ring" id="card-pulse-ring"></div>
+            </div>
+            <div class="header-text">
+              <h2 id="card-badge">Someone Nearby</h2>
+              <div class="header-sub">
+                <span>Shared</span>
+                <span class="dot"></span>
+                <span id="card-time">Live</span>
+              </div>
+            </div>
+          </div>
+          <button id="card-close" class="btn-close-ghost">
+            <span class="material-icons-outlined" style="font-size: 24px;">close</span>
+          </button>
+        </div>
+
+        <!-- Main Text -->
+        <p id="card-text" class="quote-text">"..."</p>
+
+        <!-- Responses -->
+        <div>
+          <div class="responses-label">Responses (<span id="card-responses">0</span>)</div>
+          <div id="card-response-list" class="speech-bubble-container"></div>
+        </div>
+
+        <!-- Action -->
+        <div class="divider"></div>
+        <button id="btn-send-support" class="metallic-btn">
+          <div class="btn-text">Send Support</div>
+          <span class="material-icons-outlined" style="font-size: 18px; color: #1e293b;">arrow_forward</span>
+        </button>
+      </div>
     </div>
-    <p id="card-text" class="card-text"></p>
-    <div class="card-meta">
-      <span id="card-time" class="card-time"></span>
-      <span id="card-responses" class="card-responses"></span>
-    </div>
-    <div id="card-response-list" class="response-list"></div>
-    <button id="btn-send-support" class="btn-primary">Send Support</button>
   </div>
 
-  <!-- Input Overlay -->
-  <div id="input-overlay" class="overlay hidden">
-    <div class="input-card">
-      <h2 class="input-title">Share Anonymously</h2>
-      <textarea id="input-text" class="input-textarea" maxlength="280" placeholder="How are you feeling?"></textarea>
-      <div class="input-footer">
-        <span id="char-count" class="char-count">0 / 280</span>
-        <div class="input-actions">
-          <button id="btn-cancel" class="btn-ghost">Cancel</button>
-          <button id="btn-submit" class="btn-primary" disabled>Send</button>
+  <!-- Input Overlay (Glassmorphism) -->
+  <div id="input-overlay" class="input-overlay-bg hidden">
+    <div class="glass-input-card">
+      <div class="bg-noise"></div>
+      <div class="flex-col-gap" style="padding: 1.5rem;">
+        <h2 class="header-text input-title" style="text-align: center;">Share Anonymously</h2>
+
+        <!-- Emotion Selector injected here by JS -->
+        <div id="input-content">
+          <textarea id="input-text" class="glass-textarea" maxlength="280"
+            placeholder="How are you feeling?"></textarea>
+        </div>
+
+        <div class="flex-row-between" style="padding: 0 4px;">
+          <span id="char-count" class="responses-label">0 / 280</span>
+        </div>
+
+        <div class="flex-row-between" style="gap: 12px; margin-top: 8px;">
+          <button id="btn-cancel" class="btn-ghost-pill" style="flex:1;">Cancel</button>
+          <button id="btn-submit" disabled class="btn-primary-pill" style="flex:1;">Send</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Empty State -->
-  <div id="empty-state" class="overlay hidden">
-    <div class="empty-card">
-      <div class="empty-icon">🌌</div>
-      <h2>The emotional landscape is quiet here</h2>
-      <p>Be the first to share how you're feeling</p>
-      <button id="btn-share-first" class="btn-primary">Share a Feeling</button>
+  <!-- Empty State (Glassmorphism) -->
+  <div id="empty-state" class="glass-card-container hidden" style="top: 30%; bottom: auto;">
+    <div class="glass-card" style="text-align: center;">
+      <div class="bg-noise"></div>
+      <div class="flex-col-gap" style="align-items: center;">
+        <div style="font-size: 48px; animation: subtle-pulse 2s infinite;">🌌</div>
+        <h2 style="font-size: 1.25rem; font-weight: 300;">The emotional landscape is quiet here</h2>
+        <p style="font-size: 0.875rem; color: rgba(255,255,255,0.5);">Be the first to share how you're feeling.</p>
+        <button id="btn-share-first" class="btn-ghost-pill">Share a Feeling</button>
+      </div>
     </div>
   </div>
 
