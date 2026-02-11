@@ -1,6 +1,7 @@
 import { postMessage, postResponse, fetchResponses, updatePresence, getPresenceCount } from './firebase.js';
 import { getPosition } from './gps.js';
 import { setPresenceDots, syncNodes } from './nodes.js';
+import { checkModeration } from './moderation.js';
 
 const $ = (s) => document.querySelector(s);
 let _onNodeDeselect = null;
@@ -181,9 +182,18 @@ async function handleSubmit() {
 
   const btnSubmit = $('#btn-submit');
   btnSubmit.disabled = true;
-  btnSubmit.textContent = 'Sending…';
+  btnSubmit.textContent = 'Checking content…';
 
   try {
+    const isAppropriate = await checkModeration(text);
+    if (!isAppropriate) {
+      showToast('Please keep messages helpful and kind.', 'error');
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = _isResponseMode ? 'Send Support' : 'Send';
+      return;
+    }
+
+    btnSubmit.textContent = 'Sending…';
     if (_isResponseMode && _selectedNodeEntry) {
       await postResponse(_selectedNodeEntry.data.id, text);
       showToast('Support sent', 'success');
@@ -255,4 +265,3 @@ function timeAgo(date) {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
-
