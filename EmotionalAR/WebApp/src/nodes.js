@@ -5,9 +5,9 @@
 import * as THREE from 'three';
 import { nodeGlowVertex, nodeGlowFragment, createNodeUniforms } from './shaders/nodeGlow.js';
 import { gpsToLocal, getPosition } from './gps.js';
-import { getElevation } from './world.js';
+import { getElevation, getMap, getCamera } from './world.js';
 
-const nodes = new Map();   // id → { mesh, data, discs[], dots[], group }
+const nodes = new Map();   // id → { mesh, data, discs[], dots[], group, needsElevationUpdate }
 let _scene = null;
 
 const EMOTION_COLORS = {
@@ -67,10 +67,14 @@ function spawnNode(msg) {
     group.position.set(local.x, 50, local.z);
 
     // Get elevation from Mapbox terrain
-    const groundY = getElevation(msg.latitude, msg.longitude) || 0;
+    const elevData = getElevation(msg.latitude, msg.longitude);
+    const groundY = (typeof elevData === 'object' ? elevData.elevation : elevData) || 0;
 
     // Hover 1.5m above ground
     group.position.y = groundY + 1.5;
+
+    // If not on building, mark for elevation re-check (in case it spawned off-screen)
+    const needsElevationUpdate = !elevData.onBuilding;
 
     group.name = `node_${msg.id}`;
 
@@ -124,7 +128,8 @@ function spawnNode(msg) {
     const entry = {
         mesh, group, data: msg, uniforms, discs, dots, color,
         spawnTime: performance.now(),
-        baseY: group.position.y // Remember base height
+        baseY: group.position.y, // Remember base height
+        needsElevationUpdate
     };
     nodes.set(msg.id, entry);
 }
@@ -173,7 +178,9 @@ function updateNode(msg) {
 // ── Animate (called each frame) ────────────────────────────────
 
 export function animateNodes(time) {
-    // Periodically check ground height? (Expensive, maybe only on spawn or slow interval)
+    const camera = getCamera();
+    let elevationChecks = 0;
+    const MAX_CHECKS = 2; // Limit expensive pixel reads per frame
 
     for (const [id, entry] of nodes) {
         const { mesh, group, uniforms, spawnTime, dots, baseY } = entry;
@@ -197,19 +204,42 @@ export function animateNodes(time) {
         group.rotation.y += 0.003;
 
         // Shader time
-        uniforms.uTime.value = time;
+        if (uniforms) uniforms.uTime.value = time;
 
         // Presence dots orbit
-        dots.forEach((dot, i) => {
-            const angle = time * (0.3 + i * 0.1) + i * (Math.PI * 2 / dots.length);
-            dot.position.set(
-                Math.cos(angle) * 0.7,
-                dot.userData.yOff || 0,
-                Math.sin(angle) * 0.7
-            );
-            const breathe = 1 + Math.sin(time * 2 + i) * 0.1;
-            dot.scale.setScalar(0.04 * breathe);
-        });
+        if (dots) {
+            dots.forEach((dot, i) => {
+                const angle = time * (0.3 + i * 0.1) + i * (Math.PI * 2 / dots.length);
+                dot.position.set(
+                    Math.cos(angle) * 0.7,
+                    dot.userData.yOff || 0,
+                    Math.sin(angle) * 0.7
+                );
+                const breathe = 1 + Math.sin(time * 2 + i) * 0.1;
+                dot.scale.setScalar(0.04 * breathe);
+            });
+        }
+
+        // Lazy elevation check (snap to building when visible)
+        if (entry.needsElevationUpdate && camera && elevationChecks < MAX_CHECKS) {
+            // Project to screen to see if visible
+            const p = group.position.clone();
+            p.project(camera);
+
+            // NDC check: is it on screen?
+            if (p.x >= -1 && p.x <= 1 && p.y >= -1 && p.y <= 1 && p.z >= 0 && p.z <= 1) {
+                // It's visible! Check elevation again
+                elevationChecks++;
+                const elevData = getElevation(entry.data.latitude, entry.data.longitude);
+                if (elevData.onBuilding) {
+                    // Update base height to rooftop
+                    entry.baseY = elevData.elevation + 1.5;
+                    // Reset current Y so it doesn't jump wildly (it will animate to new baseY)
+                    group.position.y = entry.baseY;
+                    entry.needsElevationUpdate = false; // Found building, done
+                }
+            }
+        }
     }
 }
 
