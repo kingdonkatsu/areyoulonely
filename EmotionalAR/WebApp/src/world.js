@@ -31,7 +31,7 @@ export function initWorld() {
     _scene = new THREE.Scene();
 
     // Lighting
-    const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+    const ambient = new THREE.AmbientLight(0xF5F5F5, 0.7);
     _scene.add(ambient);
     const dir = new THREE.DirectionalLight(0xffffff, 0.8);
     dir.position.set(50, 80, 100);
@@ -54,6 +54,8 @@ export function initWorld() {
       config: {
         basemap: {
           lightPreset: 'dawn',
+          // theme: 'custom', // To use custom theme, set theme: 'custom'
+          // themeData: '<base64-lut-string>', // Provide base64 LUT here
           showPointOfInterestLabels: false,
           showPlaceLabels: false,
           showRoadLabels: false,
