@@ -3,18 +3,19 @@
 // ═══════════════════════════════════════════════════════════════
 
 import './style.css';
-import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo, setOrigin, getMap, getElevation } from './world.js';
+import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo, setOrigin, getMap, getElevation, flyToCharacter, isUserPanning } from './world.js';
 import { initNodes, syncNodes, animateNodes, getNodeMeshes, getNodeByMesh, getNodeCount } from './nodes.js';
 import { initFirebase, fetchNearbyMessages } from './firebase.js';
 import { startGPS, gpsToLocal, getPosition, haversine } from './gps.js';
 import { initUI, showCard, closeCard, hideLoadingScreen, showEmptyState, updateHUD, showToast } from './ui.js';
-import { initCharacter, updateCharacterPosition, setTargetPosition, setCharacterDirection, setWalking, setWalkSpeed, animateCharacter } from './character.js';
+import { initCharacter, updateCharacterPosition, setTargetPosition, setCharacterDirection, setWalking, setWalkSpeed, setCharacterLatLng, animateCharacter } from './character.js';
 
 // ── State ─────────────────────────────────────────────────────
 let lastFetchTime = 0;
 const FETCH_INTERVAL = 10000; // 10s
 let _prevLocal = { x: 0, z: 0 }; // Previous position for direction calc
 let idleTimer = null; // Timer to check if user stopped walking
+let _lastGPSLat = 0, _lastGPSLng = 0; // Latest GPS position for relocate
 
 // ── Boot ──────────────────────────────────────────────────────
 
@@ -41,8 +42,29 @@ async function boot() {
     // 3. Init Firebase
     await initFirebase();
 
+    // 3.5 Relocate button
+    const btnRelocate = document.getElementById('btn-relocate');
+    btnRelocate.addEventListener('click', () => {
+        flyToCharacter(_lastGPSLat, _lastGPSLng);
+        btnRelocate.classList.remove('visible');
+    });
+
+    // Show/hide relocate button based on pan state
+    setInterval(() => {
+        if (isUserPanning()) {
+            btnRelocate.classList.add('visible');
+        }
+    }, 500);
+
     // 4. GPS + first fetch
     const pos = await startGPS((update) => {
+        // Store latest GPS for relocate
+        _lastGPSLat = update.lat;
+        _lastGPSLng = update.lng;
+
+        // Update character's lat/lng for continuous elevation polling
+        setCharacterLatLng(update.lat, update.lng);
+
         // Calculate local XZ relative to the start point
         const local = gpsToLocal(update.lat, update.lng, pos.lat, pos.lng);
 
@@ -87,6 +109,13 @@ async function boot() {
 
     // Set GPS origin for the Three.js coordinate system
     setOrigin(pos.lat, pos.lng);
+
+    // Initialize relocate position from initial fix
+    _lastGPSLat = pos.lat;
+    _lastGPSLng = pos.lng;
+
+    // Set initial character lat/lng for elevation polling
+    setCharacterLatLng(pos.lat, pos.lng);
 
     // First fetch of nearby messages
     await fetchAndSync();

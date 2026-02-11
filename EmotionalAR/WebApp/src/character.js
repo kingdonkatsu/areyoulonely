@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
-import { getElevation } from './world.js';
+import { getElevation, getElevationAtScreenPoint, getMap } from './world.js';
 
 let _scene = null;
 let _group = null;         // Root group for the entire character
@@ -17,18 +17,15 @@ let _targetAngle = 0;
 let _leftArm, _rightArm, _leftLeg, _rightLeg;
 let _body; // Inner body group that rotates to face direction
 
-// ── Color palette (warm Animal Crossing aesthetic) ──────────
-const SKIN = 0xFFDFC4;       // Warm peachy skin
-const HAIR = 0x8B5E3C;       // Warm brown
-const SHIRT = 0x7ECEC1;      // Mint green
-const SHORTS = 0xFF8A80;     // Coral/salmon
-const SHOE = 0x5D4037;       // Dark brown
-const EYE_BLACK = 0x1A1A2E;  // Deep navy-black
-const EYE_WHITE = 0xFFFFFF;
+// ── Color palette (cohesive warm pastel aesthetic) ──────────
+const SKIN = 0xFFE5D4;       // Soft peachy skin
+const HAIR = 0xA67C52;       // Light warm brown
+const OUTFIT = 0xFFB6C1;     // Light pink (unified)
+const ACCENT = 0xFFF8DC;     // Cream (details)
+const SHOE = 0x8B7355;       // Tan brown
+const EYE = 0x2C2C3E;        // Soft dark
 const EYE_HIGHLIGHT = 0xFFFFFF;
-const MOUTH = 0xD4756B;      // Soft rosy
-const HAT = 0x66BB6A;        // Leaf green
-const CHEEK = 0xFFB3B3;      // Blush pink
+const MOUTH = 0xFFB6C1;      // Match outfit
 
 /** Initialize the player character and add to scene. */
 export function initCharacter(scene) {
@@ -63,24 +60,33 @@ function buildHead(parent) {
     const headGroup = new THREE.Group();
     headGroup.position.y = 1.55;
 
-    // Head sphere (large, round — AC proportions)
-    const headGeo = new THREE.SphereGeometry(0.32, 16, 16);
-    const headMat = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.8, metalness: 0 });
+    // Head sphere (larger for chibi proportions)
+    const headGeo = new THREE.SphereGeometry(0.38, 20, 20);
+    const headMat = new THREE.MeshStandardMaterial({
+        color: SKIN,
+        roughness: 0.9,
+        metalness: 0,
+        flatShading: false // Smooth shading
+    });
     const head = new THREE.Mesh(headGeo, headMat);
     head.castShadow = true;
     headGroup.add(head);
 
     // ── Eyes (big oval, AC style) ───────────────────────────
-    const eyeGeo = new THREE.SphereGeometry(0.065, 12, 12);
+    const eyeGeo = new THREE.SphereGeometry(0.075, 12, 12);
     eyeGeo.scale(1, 1.3, 0.6); // Oval shape
-    const eyeMat = new THREE.MeshBasicMaterial({ color: EYE_BLACK });
+    const eyeMat = new THREE.MeshBasicMaterial({
+        color: EYE,
+        emissive: EYE,
+        emissiveIntensity: 0.1 // Subtle glow
+    });
 
     const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-    leftEye.position.set(-0.1, 0.04, 0.27);
+    leftEye.position.set(-0.12, 0.05, 0.32);
     headGroup.add(leftEye);
 
     const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-    rightEye.position.set(0.1, 0.04, 0.27);
+    rightEye.position.set(0.12, 0.05, 0.32);
     headGroup.add(rightEye);
 
     // Eye highlights (small white dot — sparkle)
@@ -88,126 +94,70 @@ function buildHead(parent) {
     const highlightMat = new THREE.MeshBasicMaterial({ color: EYE_HIGHLIGHT });
 
     const leftHighlight = new THREE.Mesh(highlightGeo, highlightMat);
-    leftHighlight.position.set(-0.075, 0.07, 0.30);
+    leftHighlight.position.set(-0.095, 0.08, 0.35);
     headGroup.add(leftHighlight);
 
     const rightHighlight = new THREE.Mesh(highlightGeo, highlightMat);
-    rightHighlight.position.set(0.125, 0.07, 0.30);
+    rightHighlight.position.set(0.145, 0.08, 0.35);
     headGroup.add(rightHighlight);
 
-    // ── Cheek blush (two small pink circles) ────────────────
-    const cheekGeo = new THREE.CircleGeometry(0.045, 12);
-    const cheekMat = new THREE.MeshBasicMaterial({
-        color: CHEEK,
-        transparent: true,
-        opacity: 0.5,
-        side: THREE.DoubleSide,
-        depthWrite: false
-    });
+    // Cheek blush removed for cleaner look
 
-    const leftCheek = new THREE.Mesh(cheekGeo, cheekMat);
-    leftCheek.position.set(-0.18, -0.04, 0.28);
-    leftCheek.lookAt(-0.18, -0.04, 1);
-    headGroup.add(leftCheek);
-
-    const rightCheek = new THREE.Mesh(cheekGeo, cheekMat);
-    rightCheek.position.set(0.18, -0.04, 0.28);
-    rightCheek.lookAt(0.18, -0.04, 1);
-    headGroup.add(rightCheek);
-
-    // ── Mouth (small smile curve) ───────────────────────────
+    // ── Mouth (simple smile) ─────────────────────────────────
     const smileCurve = new THREE.QuadraticBezierCurve3(
-        new THREE.Vector3(-0.06, -0.08, 0.30),
-        new THREE.Vector3(0.0, -0.12, 0.32),
-        new THREE.Vector3(0.06, -0.08, 0.30)
+        new THREE.Vector3(-0.07, -0.10, 0.34),
+        new THREE.Vector3(0.0, -0.14, 0.36),
+        new THREE.Vector3(0.07, -0.10, 0.34)
     );
-    const smileGeo = new THREE.TubeGeometry(smileCurve, 12, 0.012, 6, false);
+    const smileGeo = new THREE.TubeGeometry(smileCurve, 12, 0.015, 6, false);
     const smileMat = new THREE.MeshBasicMaterial({ color: MOUTH });
     headGroup.add(new THREE.Mesh(smileGeo, smileMat));
 
     // ── Nose (tiny bump) ────────────────────────────────────
-    const noseGeo = new THREE.SphereGeometry(0.025, 8, 8);
-    const noseMat = new THREE.MeshStandardMaterial({ color: 0xF0C8A0, roughness: 0.9 });
+    const noseGeo = new THREE.SphereGeometry(0.028, 8, 8);
+    const noseMat = new THREE.MeshStandardMaterial({ color: 0xFFD4BA, roughness: 0.9 });
     const nose = new THREE.Mesh(noseGeo, noseMat);
-    nose.position.set(0, -0.02, 0.30);
+    nose.position.set(0, -0.03, 0.34);
     nose.scale.set(1, 0.7, 0.7);
     headGroup.add(nose);
 
-    // ── Hair (rounded bob, AC style) ────────────────────────
-    const hairGroup = new THREE.Group();
-    const hairMat = new THREE.MeshStandardMaterial({ color: HAIR, roughness: 0.9 });
+    // ── Hair (simple rounded cap) ────────────────────────────
+    const hairMat = new THREE.MeshStandardMaterial({
+        color: HAIR,
+        roughness: 0.9,
+        flatShading: false
+    });
 
-    // Main hair cap
-    const capGeo = new THREE.SphereGeometry(0.34, 16, 16, 0, Math.PI * 2, 0, Math.PI * 0.6);
+    // Single smooth hair cap
+    const capGeo = new THREE.SphereGeometry(0.40, 20, 20, 0, Math.PI * 2, 0, Math.PI * 0.65);
     const cap = new THREE.Mesh(capGeo, hairMat);
-    cap.position.y = 0.04;
+    cap.position.y = 0.05;
     cap.castShadow = true;
-    hairGroup.add(cap);
-
-    // Side bangs
-    const bangGeo = new THREE.SphereGeometry(0.12, 10, 10);
-    const leftBang = new THREE.Mesh(bangGeo, hairMat);
-    leftBang.position.set(-0.26, -0.02, 0.12);
-    leftBang.scale.set(0.8, 1.2, 0.9);
-    hairGroup.add(leftBang);
-
-    const rightBang = new THREE.Mesh(bangGeo, hairMat);
-    rightBang.position.set(0.26, -0.02, 0.12);
-    rightBang.scale.set(0.8, 1.2, 0.9);
-    hairGroup.add(rightBang);
-
-    // Front fringe
-    const fringeGeo = new THREE.SphereGeometry(0.20, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.35);
-    const fringe = new THREE.Mesh(fringeGeo, hairMat);
-    fringe.position.set(0, 0.14, 0.18);
-    fringe.rotation.x = 0.3;
-    hairGroup.add(fringe);
-
-    headGroup.add(hairGroup);
-
-    // ── Hat (small leaf/beret) ──────────────────────────────
-    const hatGeo = new THREE.SphereGeometry(0.18, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.45);
-    const hatMat = new THREE.MeshStandardMaterial({ color: HAT, roughness: 0.7 });
-    const hat = new THREE.Mesh(hatGeo, hatMat);
-    hat.position.set(0.08, 0.28, 0.05);
-    hat.rotation.z = -0.3;
-    hat.castShadow = true;
-    headGroup.add(hat);
-
-    // Hat stem
-    const stemGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.06, 6);
-    const stemMat = new THREE.MeshStandardMaterial({ color: 0x4E8B4E });
-    const stem = new THREE.Mesh(stemGeo, stemMat);
-    stem.position.set(0.08, 0.36, 0.05);
-    headGroup.add(stem);
+    headGroup.add(cap);
 
     parent.add(headGroup);
 }
 
 function buildTorso(parent) {
     const torsoGroup = new THREE.Group();
-    torsoGroup.position.y = 1.05;
+    torsoGroup.position.y = 0.95; // Shorter for chibi proportions
 
-    // Shirt (upper torso)
-    const shirtGeo = new THREE.CapsuleGeometry(0.2, 0.3, 8, 12);
-    const shirtMat = new THREE.MeshStandardMaterial({ color: SHIRT, roughness: 0.8 });
-    const shirt = new THREE.Mesh(shirtGeo, shirtMat);
-    shirt.castShadow = true;
-    torsoGroup.add(shirt);
+    // Unified outfit (dress/romper)
+    const outfitGeo = new THREE.CapsuleGeometry(0.2, 0.4, 10, 14);
+    const outfitMat = new THREE.MeshStandardMaterial({
+        color: OUTFIT,
+        roughness: 0.9,
+        flatShading: false
+    });
+    const outfit = new THREE.Mesh(outfitGeo, outfitMat);
+    outfit.castShadow = true;
+    torsoGroup.add(outfit);
 
-    // Shorts (lower torso)
-    const shortsGeo = new THREE.CapsuleGeometry(0.19, 0.12, 8, 12);
-    const shortsMat = new THREE.MeshStandardMaterial({ color: SHORTS, roughness: 0.8 });
-    const shorts = new THREE.Mesh(shortsGeo, shortsMat);
-    shorts.position.y = -0.22;
-    shorts.castShadow = true;
-    torsoGroup.add(shorts);
-
-    // Collar detail (small ring at neckline)
-    const collarGeo = new THREE.TorusGeometry(0.12, 0.02, 8, 16);
-    const collarMat = new THREE.MeshStandardMaterial({ color: 0xFFFFFF, roughness: 0.8 });
+    // Collar detail (cream accent)
+    const collarGeo = new THREE.TorusGeometry(0.13, 0.025, 8, 16);
+    const collarMat = new THREE.MeshStandardMaterial({ color: ACCENT, roughness: 0.9 });
     const collar = new THREE.Mesh(collarGeo, collarMat);
-    collar.position.y = 0.18;
+    collar.position.y = 0.22;
     collar.rotation.x = Math.PI / 2;
     torsoGroup.add(collar);
 
@@ -220,13 +170,13 @@ function buildArms(parent) {
     leftArmPivot.position.set(-0.28, 1.15, 0);
     leftArmPivot.name = 'leftArmPivot';
 
-    const armGeo = new THREE.CapsuleGeometry(0.055, 0.28, 6, 8);
-    const skinMat = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.8 });
-    const shirtMat = new THREE.MeshStandardMaterial({ color: SHIRT, roughness: 0.8 });
+    const armGeo = new THREE.CapsuleGeometry(0.05, 0.26, 6, 8); // Slightly thinner
+    const skinMat = new THREE.MeshStandardMaterial({ color: SKIN, roughness: 0.9, flatShading: false });
+    const outfitMat = new THREE.MeshStandardMaterial({ color: OUTFIT, roughness: 0.9, flatShading: false });
 
     // Sleeve portion
-    const sleeveGeo = new THREE.CapsuleGeometry(0.065, 0.08, 6, 8);
-    const leftSleeve = new THREE.Mesh(sleeveGeo, shirtMat);
+    const sleeveGeo = new THREE.CapsuleGeometry(0.06, 0.08, 6, 8);
+    const leftSleeve = new THREE.Mesh(sleeveGeo, outfitMat);
     leftSleeve.position.y = -0.02;
     leftArmPivot.add(leftSleeve);
 
@@ -288,11 +238,11 @@ function buildLegs(parent) {
 }
 
 function buildShadow(parent) {
-    const shadowGeo = new THREE.CircleGeometry(0.35, 16);
+    const shadowGeo = new THREE.CircleGeometry(0.45, 20);
     const shadowMat = new THREE.MeshBasicMaterial({
         color: 0x000000,
         transparent: true,
-        opacity: 0.18,
+        opacity: 0.22,
         depthWrite: false,
         side: THREE.DoubleSide
     });
@@ -314,17 +264,29 @@ let _walkSpeed = 1.0; // m/s (for animation speed scaling)
 const LERP_SPEED_XZ = 3.0;   // How fast XZ catches up (higher = faster)
 const LERP_SPEED_Y = 2.0;    // How fast Y catches up (slower = floating walk effect)
 
-/** Set the target position. Character will lerp toward it smoothly. */
+// Character lat/lng for continuous elevation polling
+let _charLat = 0, _charLng = 0;
+let _elevPollTimer = 0;
+const ELEV_POLL_INTERVAL = 0.1; // Poll elevation every 100ms (10fps)
+const LOOK_AHEAD_METERS = 2.0;  // Check 2m ahead for proactive detection
+
+/** Set the target position. Character will lerp toward it smoothly.
+ *  Elevation is now handled by continuous polling, not set here. */
 export function setTargetPosition(x, z, elevationData) {
     _targetPos.x = x;
     _targetPos.z = z;
-    // elevationData is { elevation, onBuilding } from getElevation
+    // Y is set by continuous polling in animateCharacter, but accept initial hint
     if (elevationData && typeof elevationData.elevation === 'number') {
         _targetPos.y = elevationData.elevation;
     } else if (typeof elevationData === 'number') {
-        // Fallback: plain number
         _targetPos.y = elevationData;
     }
+}
+
+/** Store character's lat/lng for continuous elevation polling. */
+export function setCharacterLatLng(lat, lng) {
+    _charLat = lat;
+    _charLng = lng;
 }
 
 /** Move character to a local XZ position, adjusting Y based on terrain elevation.
@@ -374,6 +336,34 @@ export function animateCharacter(deltaTime) {
     _group.position.x = _currentPos.x;
     _group.position.z = _currentPos.z;
     _group.position.y = _currentPos.y;
+
+    // ── Continuous elevation polling (color-based) ────────────
+    _elevPollTimer += deltaTime;
+    if (_elevPollTimer >= ELEV_POLL_INTERVAL && _charLat !== 0) {
+        _elevPollTimer = 0;
+
+        // 1. Check current position
+        const elevNow = getElevation(_charLat, _charLng);
+        if (elevNow) {
+            _targetPos.y = elevNow.elevation;
+        }
+
+        // 2. Proactive: check ahead in walking direction
+        if (_isWalking) {
+            const map = getMap();
+            if (map) {
+                // Calculate a point ~2m ahead
+                const aheadLat = _charLat + Math.cos(_facingAngle) * (LOOK_AHEAD_METERS / 110574);
+                const aheadLng = _charLng + Math.sin(_facingAngle) * (LOOK_AHEAD_METERS / (111320 * Math.cos(_charLat * Math.PI / 180)));
+                const aheadElev = getElevation(aheadLat, aheadLng);
+
+                // If ahead has a building and we're lower, start ascending early
+                if (aheadElev && aheadElev.onBuilding && aheadElev.elevation > _targetPos.y) {
+                    _targetPos.y = aheadElev.elevation;
+                }
+            }
+        }
+    }
 
     // ── Smooth rotation towards target angle ────────────────
     let angleDiff = _targetAngle - _facingAngle;

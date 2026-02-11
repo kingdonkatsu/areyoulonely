@@ -13,6 +13,7 @@ let _camera = null;
 let _renderer = null;
 let _clock = null;
 let _originMercator = null;
+let _isUserPanning = false;  // Track if user is manually panning
 const _raycaster = new THREE.Raycaster();
 
 // ── Public API ────────────────────────────────────────────────
@@ -52,11 +53,11 @@ export function initWorld() {
       bearing: 0,
       antialias: true,
 
-      // Interactions: Lock Pan, Allow Zoom/Rotate/Pitch
+      // Interactions: Allow Pan, Zoom, Rotate, Pitch
       interactive: true,
-      dragPan: false,      // No moving
-      scrollZoom: true,    // Zoom allowed
-      boxZoom: true,       // Zoom allowed
+      dragPan: true,         // Panning enabled
+      scrollZoom: true,      // Zoom allowed
+      boxZoom: true,         // Zoom allowed
       doubleClickZoom: true, // Zoom allowed
       keyboard: false,
 
@@ -72,6 +73,10 @@ export function initWorld() {
       console.log('[World] Mapbox GL Standard + Three.js layer ready.');
       resolve({ scene: _scene, clock: _clock });
     });
+
+    // Track user panning — pause auto-follow while panning
+    _map.on('dragstart', () => { _isUserPanning = true; });
+    _map.on('moveend', () => { /* keep panning flag until relocate */ });
 
     // Safety timeout
     setTimeout(() => {
@@ -100,16 +105,35 @@ export function setOrigin(lat, lng) {
   _map.setMaxBounds(bounds);
 }
 
-/** Smoothly move the map to follow the user's GPS. */
+/** Smoothly move the map to follow the user's GPS. Skipped if user is panning. */
 export function smoothTo(lat, lng) {
-  if (!_map) return;
+  if (!_map || _isUserPanning) return;
   _map.easeTo({ center: [lng, lat], duration: 500 });
+}
+
+/** Fly back to the character's GPS position and resume auto-follow. */
+export function flyToCharacter(lat, lng) {
+  if (!_map) return;
+  _isUserPanning = false;
+  _map.flyTo({
+    center: [lng, lat],
+    duration: 1000,
+    zoom: _map.getZoom(),
+    bearing: 0,    // Reset to north-facing
+    pitch: 60,     // Top-down angled view to see character
+  });
+}
+
+/** Check if user is currently panning away from character. */
+export function isUserPanning() {
+  return _isUserPanning;
 }
 
 /** No-op — Mapbox handles its own render loop. */
 export function updateWorld() { }
 
 export function getScene() { return _scene; }
+export function getCamera() { return _camera; }
 export function getClock() { return _clock; }
 export function getMap() { return _map; }
 
@@ -134,7 +158,8 @@ export function raycastFromScreen(clientX, clientY, targets) {
   return _raycaster.intersectObjects(targets, true);
 }
 
-/** Get ground elevation (meters) at a specific lat/lng using Mapbox terrain data. 
+/** Get ground elevation (meters) at a specific lat/lng.
+ *  Uses pixel color sampling to detect buildings visually.
  *  Returns { elevation, onBuilding } for smooth character transitions. */
 export function getElevation(lat, lng) {
   if (!_map) return { elevation: 0, onBuilding: false };
@@ -143,45 +168,115 @@ export function getElevation(lat, lng) {
   let elevation = _map.queryTerrainElevation([lng, lat]) || 0;
   let onBuilding = false;
 
-  // Check for buildings to place character on roof
+  // Project lat/lng to screen pixel
   const point = _map.project([lng, lat]);
-  const features = _map.queryRenderedFeatures(point);
+  const px = Math.round(point.x);
+  const py = Math.round(point.y);
 
+  // Sample the pixel color at this screen position
+  const color = samplePixelColor(px, py);
+
+  if (color && isBuildingColor(color.r, color.g, color.b)) {
+    // Pixel matches building color — query for height data
+    onBuilding = true;
+    const buildingHeight = getBuildingHeightAtPoint(point);
+    elevation += buildingHeight;
+  }
+
+  return { elevation, onBuilding };
+}
+
+/** Get elevation at a screen point (for proactive ahead-detection).
+ *  @param {number} screenX - screen X coordinate
+ *  @param {number} screenY - screen Y coordinate
+ *  @returns {{ elevation: number, onBuilding: boolean }} */
+export function getElevationAtScreenPoint(screenX, screenY) {
+  if (!_map) return { elevation: 0, onBuilding: false };
+
+  const color = samplePixelColor(Math.round(screenX), Math.round(screenY));
+  if (!color) return { elevation: 0, onBuilding: false };
+
+  // Unproject screen point back to lat/lng for terrain height
+  const lngLat = _map.unproject([screenX, screenY]);
+  let elevation = _map.queryTerrainElevation([lngLat.lng, lngLat.lat]) || 0;
+  let onBuilding = false;
+
+  if (isBuildingColor(color.r, color.g, color.b)) {
+    onBuilding = true;
+    const point = { x: screenX, y: screenY };
+    const buildingHeight = getBuildingHeightAtPoint(point);
+    elevation += buildingHeight;
+  }
+
+  return { elevation, onBuilding };
+}
+
+// ── Pixel Color Sampling Helpers ──────────────────────────────
+
+const BUILDING_COLOR = { r: 245, g: 240, b: 229 }; // #f5f0e5
+const COLOR_TOLERANCE = 20; // Allow ±20 per channel for lighting/shading
+
+/** Sample the pixel color at a screen position from the Mapbox WebGL canvas. */
+function samplePixelColor(screenX, screenY) {
+  if (!_map) return null;
+  const canvas = _map.getCanvas();
+  if (!canvas) return null;
+
+  const gl = canvas.getContext('webgl') || canvas.getContext('webgl2');
+  if (!gl) return null;
+
+  // WebGL has Y=0 at bottom, screen has Y=0 at top
+  const glY = canvas.height - screenY * (canvas.height / canvas.clientHeight);
+  const glX = screenX * (canvas.width / canvas.clientWidth);
+
+  // Clamp to canvas bounds
+  if (glX < 0 || glX >= canvas.width || glY < 0 || glY >= canvas.height) return null;
+
+  const pixel = new Uint8Array(4);
+  gl.readPixels(Math.round(glX), Math.round(glY), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+
+  return { r: pixel[0], g: pixel[1], b: pixel[2], a: pixel[3] };
+}
+
+/** Check if a color matches the Mapbox building color (#f5f0e5) within tolerance. */
+function isBuildingColor(r, g, b) {
+  return Math.abs(r - BUILDING_COLOR.r) <= COLOR_TOLERANCE &&
+    Math.abs(g - BUILDING_COLOR.g) <= COLOR_TOLERANCE &&
+    Math.abs(b - BUILDING_COLOR.b) <= COLOR_TOLERANCE;
+}
+
+/** Get building height at a screen point using queryRenderedFeatures. */
+function getBuildingHeightAtPoint(point) {
+  const features = _map.queryRenderedFeatures(point);
   let maxHeight = 0;
+
   for (const f of features) {
     const layerType = f.layer.type;
     const layerId = f.layer.id;
 
-    // Detect building layers: fill-extrusion, model, or ID containing building/3d/extrusion
     const isBuilding = layerType === 'fill-extrusion' || layerType === 'model' ||
       layerId.includes('building') || layerId.includes('3d') || layerId.includes('extrusion');
 
     if (!isBuilding) continue;
 
-    // Try multiple height sources (most reliable first)
     let h = 0;
 
-    // 1. Paint property: fill-extrusion-height (most accurate for Standard style)
+    // 1. Paint property (most accurate)
     if (f.layer.paint && f.layer.paint['fill-extrusion-height'] != null) {
       const paintH = f.layer.paint['fill-extrusion-height'];
       if (typeof paintH === 'number') h = paintH;
     }
 
-    // 2. Feature properties (GeoJSON data)
+    // 2. Feature properties
     if (!h) h = f.properties.height || f.properties.render_height || f.properties.max_height || 0;
 
-    // 3. Fallback: assume ~15m (4-5 stories) for detected extrusions with no height
+    // 3. Fallback
     if (!h && layerType === 'fill-extrusion') h = 15;
 
     if (h > maxHeight) maxHeight = h;
   }
 
-  if (maxHeight > 0) {
-    elevation += maxHeight;
-    onBuilding = true;
-  }
-
-  return { elevation, onBuilding };
+  return maxHeight;
 }
 
 // ── Three.js Custom Layer (Mapbox CustomLayerInterface) ───────
