@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// Environment — MapTiler vector tile → street features, vegetation
+// Environment — Mapbox vector tile → street features, vegetation
 // ═══════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
 import Pbf from 'pbf';
 import { VectorTile } from '@mapbox/vector-tile';
-import { TILE_ZOOM, latLonToTile, fetchMapTilerTile } from './config.js';
+import { TILE_ZOOM, latLonToTile, fetchVectorTile } from './config.js';
 
 let _scene = null;
 let _envGroup = null;
@@ -63,7 +63,7 @@ export async function updateEnvironment(lat, lng) {
 
     clearEnvironment();
 
-    const buffer = await fetchMapTilerTile('v3', TILE_ZOOM, centerTile.x, centerTile.y);
+    const buffer = await fetchVectorTile('mapbox.mapbox-streets-v8', TILE_ZOOM, centerTile.x, centerTile.y);
     if (!buffer) {
         console.log('[Environment] No tile data.');
         return 0;
@@ -95,7 +95,8 @@ export function getEnvironmentCount() {
 // ═══════════════════════════════════════════════════════════════
 
 function processTransportation(tile, tx, ty, refLat, refLng) {
-    const layer = tile.layers['transportation'];
+    // Mapbox Streets v8 uses 'road' layer (OpenMapTiles uses 'transportation')
+    const layer = tile.layers['road'] || tile.layers['transportation'];
     if (!layer) return 0;
 
     let count = 0;

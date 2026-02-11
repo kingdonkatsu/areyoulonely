@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { MAPTILER_API_KEY, TILE_ZOOM, latLonToTile } from './config.js';
+import { MAPBOX_ACCESS_TOKEN, TILE_ZOOM, latLonToTile } from './config.js';
 
 let scene, camera, renderer, composer, controls;
 let clock;
@@ -169,13 +169,13 @@ export function updateGroundTexture(lat, lng) {
   let loaded = 0;
   const total = GRID * GRID;
 
-  console.log(`[Ground] Loading topo-v4 tiles for ${lat.toFixed(5)}, ${lng.toFixed(5)}...`);
+  console.log(`[Ground] Loading Mapbox streets tiles for ${lat.toFixed(5)}, ${lng.toFixed(5)}...`);
 
   for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
       const tx = center.x + dx;
       const ty = center.y + dy;
-      const url = `https://api.maptiler.com/maps/topo-v4/${TILE_ZOOM}/${tx}/${ty}@2x.png?key=${MAPTILER_API_KEY}`;
+      const url = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/512/${TILE_ZOOM}/${tx}/${ty}@2x?access_token=${MAPBOX_ACCESS_TOKEN}`;
 
       const img = new Image();
       img.crossOrigin = 'anonymous';
@@ -189,7 +189,7 @@ export function updateGroundTexture(lat, lng) {
         if (loaded === total) applyGroundTexture(stitchCanvas);
       };
       img.onerror = () => {
-        console.warn(`[Ground] Failed: topo-v4/${TILE_ZOOM}/${tx}/${ty}`);
+        console.warn(`[Ground] Failed: streets/${TILE_ZOOM}/${tx}/${ty}`);
         loaded++;
         if (loaded === total) applyGroundTexture(stitchCanvas);
       };

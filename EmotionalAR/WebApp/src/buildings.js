@@ -1,11 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// Buildings — MapTiler vector tile → 3D extruded footprints
+// Buildings — Mapbox vector tile → 3D extruded footprints
 // ═══════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
 import Pbf from 'pbf';
 import { VectorTile } from '@mapbox/vector-tile';
-import { TILE_ZOOM, latLonToTile, fetchMapTilerTile } from './config.js';
+import { TILE_ZOOM, latLonToTile, fetchVectorTile } from './config.js';
 
 let _scene = null;
 let _buildingsGroup = null;
@@ -39,7 +39,7 @@ export async function updateBuildings(lat, lng) {
 
     clearBuildings();
 
-    const buffer = await fetchMapTilerTile('v3', TILE_ZOOM, centerTile.x, centerTile.y);
+    const buffer = await fetchVectorTile('mapbox.mapbox-streets-v8', TILE_ZOOM, centerTile.x, centerTile.y);
     if (!buffer) {
         console.log('[Buildings] No tile data.');
         return 0;

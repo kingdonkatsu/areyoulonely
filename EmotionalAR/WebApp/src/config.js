@@ -2,9 +2,9 @@
 // Config — Shared application constants
 // ═══════════════════════════════════════════════════════════════
 
-// ── MapTiler API ──────────────────────────────────────────────
-// Get your free key at: https://cloud.maptiler.com/account/keys/
-export const MAPTILER_API_KEY = 'hKpykxsMsx0Yvouj7MmO';
+// ── Mapbox API ──────────────────────────────────────────────
+// Get your free token at: https://account.mapbox.com/access-tokens/
+export const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiZ3JlbmFkZWZhbiIsImEiOiJjbWxoYndscG4wNmQxM2NzaTRtc3NpZ3ZoIn0.0cr6xQBRKNnkcMSr1SEfsA';
 
 // Vector tile zoom level (15 = detailed street-level data)
 export const TILE_ZOOM = 15;
@@ -37,11 +37,12 @@ export function tileBbox(x, y, z) {
 }
 
 /**
- * Fetch a MapTiler vector tile as an ArrayBuffer.
+ * Fetch a Mapbox vector tile as an ArrayBuffer.
+ * Uses mapbox.mapbox-streets-v8 tileset.
  * Returns null on failure after retries.
  */
-export async function fetchMapTilerTile(tilesetId, z, x, y, maxRetries = 3) {
-    const url = `https://api.maptiler.com/tiles/${tilesetId}/${z}/${x}/${y}.pbf?key=${MAPTILER_API_KEY}`;
+export async function fetchVectorTile(tilesetId, z, x, y, maxRetries = 3) {
+    const url = `https://api.mapbox.com/v4/${tilesetId}/${z}/${x}/${y}.mvt?access_token=${MAPBOX_ACCESS_TOKEN}`;
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
@@ -52,8 +53,7 @@ export async function fetchMapTilerTile(tilesetId, z, x, y, maxRetries = 3) {
             clearTimeout(timeoutId);
 
             if (res.status === 204 || res.status === 404) {
-                // Empty tile — valid, just no data
-                console.log(`[MapTiler] Tile ${z}/${x}/${y}: empty (${res.status})`);
+                console.log(`[Mapbox] Tile ${z}/${x}/${y}: empty (${res.status})`);
                 return null;
             }
 
@@ -61,13 +61,13 @@ export async function fetchMapTilerTile(tilesetId, z, x, y, maxRetries = 3) {
 
             return await res.arrayBuffer();
         } catch (err) {
-            console.warn(`[MapTiler] Tile ${z}/${x}/${y} attempt ${attempt + 1}/${maxRetries}: ${err.message}`);
+            console.warn(`[Mapbox] Tile ${z}/${x}/${y} attempt ${attempt + 1}/${maxRetries}: ${err.message}`);
             if (attempt < maxRetries - 1) {
                 await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
             }
         }
     }
 
-    console.error(`[MapTiler] Tile ${z}/${x}/${y}: all ${maxRetries} attempts failed.`);
+    console.error(`[Mapbox] Tile ${z}/${x}/${y}: all ${maxRetries} attempts failed.`);
     return null;
 }
