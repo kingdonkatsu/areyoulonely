@@ -30,6 +30,13 @@ let _elevPollTimer = 0;
 const ELEV_POLL_INTERVAL = 0.1;
 const LOOK_AHEAD_METERS = 2.0;
 
+// ── Map Marker ────────────────────────────────────────────────
+let _mapMarker = null;
+const MARKER_HEIGHT_OFFSET = 2.5; // Height above character
+const BASE_MARKER_SCALE = 1.2; // Larger base size
+const MIN_ZOOM = 18.5;
+const MAX_ZOOM = 22;
+
 // ── Initialization ────────────────────────────────────────────
 
 export function initCharacter(scene) {
@@ -52,6 +59,9 @@ export function initCharacter(scene) {
 
     // Simple shadow blob (always looks good under a character)
     buildShadow(_group);
+
+    // Add map marker above character
+    buildMapMarker(_group);
 
     // Load the GLB model
     const loader = new GLTFLoader();
@@ -125,6 +135,79 @@ function buildShadow(parent) {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.02;
     parent.add(shadow);
+}
+
+function buildMapMarker(parent) {
+    // Create a canvas to draw a red map pin icon
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 160;
+    const ctx = canvas.getContext('2d');
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const centerX = 64;
+    const centerY = 45;
+    const radius = 35;
+    const pointY = 135;
+
+    // Draw the map pin shape (proper teardrop path)
+    ctx.fillStyle = '#EA4335'; // Google Maps red
+    ctx.beginPath();
+
+    // Start from bottom point
+    ctx.moveTo(centerX, pointY);
+
+    // Left curve from point to circle
+    ctx.quadraticCurveTo(centerX - radius - 8, centerY + 30, centerX - radius, centerY);
+
+    // Top arc (left semicircle)
+    ctx.arc(centerX, centerY, radius, Math.PI, 0, false);
+
+    // Right curve from circle to point
+    ctx.quadraticCurveTo(centerX + radius + 8, centerY + 30, centerX, pointY);
+
+    ctx.closePath();
+    ctx.fill();
+
+    // Add white border for visibility
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 5;
+    ctx.stroke();
+
+    // Cut out the inner circle (white hole)
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Add thin border to inner circle
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 16, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Create sprite from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+
+    const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+        sizeAttenuation: false, // Keep size constant in screen space
+    });
+
+    _mapMarker = new THREE.Sprite(spriteMaterial);
+    _mapMarker.scale.set(BASE_MARKER_SCALE, BASE_MARKER_SCALE * 1.25, 1); // Slightly taller
+    _mapMarker.position.y = MARKER_HEIGHT_OFFSET;
+    _mapMarker.renderOrder = 999; // Render on top
+
+    parent.add(_mapMarker);
 }
 
 // ── Animation Control ─────────────────────────────────────────
@@ -229,5 +312,26 @@ export function animateCharacter(deltaTime) {
     // 4. Update Animation Mixer
     if (_mixer) {
         _mixer.update(deltaTime);
+    }
+
+    // 5. Update Map Marker Scale and Position based on Zoom Level
+    if (_mapMarker) {
+        const map = getMap();
+        if (map) {
+            const currentZoom = map.getZoom();
+            // Inverse scaling: as zoom decreases (zoom out), marker gets bigger (gentle growth)
+            // At max zoom (22): scale = 1.2x (zoomed in)
+            // At min zoom (18.5): scale = 5.4x (zoomed out, 4.5x growth)
+            const zoomRange = MAX_ZOOM - MIN_ZOOM;
+            const zoomFactor = (MAX_ZOOM - currentZoom) / zoomRange;
+            const scale = BASE_MARKER_SCALE * (1.0 + zoomFactor * 3.5);
+            _mapMarker.scale.set(scale, scale, 1);
+
+            // Shift marker up as zoom out to prevent overlap with model
+            // At max zoom (22): height = 2.5m
+            // At min zoom (18.5): height = 5.0m
+            const heightOffset = MARKER_HEIGHT_OFFSET + (zoomFactor * 2.5);
+            _mapMarker.position.y = heightOffset;
+        }
     }
 }
