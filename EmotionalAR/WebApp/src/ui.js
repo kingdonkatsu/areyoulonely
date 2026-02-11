@@ -71,24 +71,31 @@ export function showCard(nodeEntry) {
     const msg = nodeEntry.data;
     const card = $('#message-card');
 
-    // Badge
-    const badge = $('#card-badge');
+    // Emotion & Color Logic
     const emotion = msg.emotion || 'stress';
-    badge.textContent = emotion.toUpperCase();
     const colors = BADGE_COLORS[emotion] || BADGE_COLORS.stress;
-    badge.style.background = colors.bg;
-    badge.style.color = colors.text;
+
+    // Update Text
+    const badgeText = $('#card-badge');
+    badgeText.textContent = `Feeling ${emotion.charAt(0).toUpperCase() + emotion.slice(1)}`;
+    badgeText.style.color = colors.bg; // Use the bright color for text
+
+    // Update Pulse Icon Color
+    const pulseIcon = $('#card-pulse-icon');
+    if (pulseIcon) pulseIcon.style.color = colors.bg;
+
+    const pulseRing = $('#card-pulse-ring');
+    if (pulseRing) pulseRing.style.borderColor = colors.bg;
 
     // Text
-    $('#card-text').textContent = msg.text;
+    $('#card-text').textContent = `"${msg.text}"`;
 
     // Time
     const created = msg.createdAt ? new Date(msg.createdAt) : new Date();
-    const ago = timeAgo(created);
-    $('#card-time').textContent = ago;
+    $('#card-time').textContent = timeAgo(created);
 
-    // Responses
-    $('#card-responses').textContent = `${msg.responseCount || 0} responses`;
+    // Responses Count
+    $('#card-responses').textContent = msg.responseCount || 0;
 
     // Load responses
     loadResponses(msg.id);
@@ -117,10 +124,14 @@ async function loadResponses(messageId) {
 
     try {
         const responses = await fetchResponses(messageId);
+        if (responses.length === 0) {
+            // Optional: Show empty state text
+        }
         for (const r of responses) {
             const div = document.createElement('div');
-            div.className = 'response-item';
-            div.textContent = r.text;
+            // Tailwind + Custom Speech Cloud classes
+            div.className = 'p-4 rounded-2xl rounded-bl-sm bg-white/5 backdrop-blur-md border border-white/10 text-white/80 font-light italic text-sm';
+            div.textContent = `"${r.text}"`;
             list.appendChild(div);
         }
     } catch (err) {
@@ -151,10 +162,13 @@ function openInput() {
     $('#btn-submit').disabled = true;
     $('#btn-submit').textContent = 'Send';
     $('#input-overlay').classList.remove('hidden');
-    $('#input-overlay').classList.remove('hidden');
+
+    // Show emotion selector
+    const emotionSelector = $('#emotion-selector');
+    if (emotionSelector) emotionSelector.style.display = 'flex';
 
     // Reset emotion selection
-    document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+    document.querySelectorAll('.emotion-pill-btn').forEach(b => b.classList.remove('selected'));
     _selectedEmotion = 'hope'; // Default
     $(`[data-emotion="hope"]`)?.classList.add('selected');
 
@@ -166,20 +180,32 @@ let _selectedEmotion = 'hope';
 function initEmotionSelector() {
     const container = document.createElement('div');
     container.id = 'emotion-selector';
-    container.className = 'emotion-selector';
+    container.className = 'emotion-selector-container';
 
     Object.keys(BADGE_COLORS).forEach(emotion => {
         const btn = document.createElement('button');
-        btn.className = 'emotion-btn';
+        btn.className = 'emotion-pill-btn';
         btn.dataset.emotion = emotion;
-        btn.style.backgroundColor = BADGE_COLORS[emotion].bg;
-        btn.style.color = BADGE_COLORS[emotion].text;
+
+        // Inline colors
+        const colors = BADGE_COLORS[emotion];
+        btn.style.backgroundColor = colors.bg;
+        btn.style.color = colors.text;
         btn.textContent = emotion;
+
         btn.onclick = () => {
             _selectedEmotion = emotion;
-            document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+            // Clear selection from all
+            Array.from(container.children).forEach(b => b.classList.remove('selected'));
+            // Select this one
             btn.classList.add('selected');
         };
+
+        // Auto-select 'hope'
+        if (emotion === 'hope') {
+            btn.classList.add('selected');
+        }
+
         container.appendChild(btn);
     });
 
@@ -194,6 +220,11 @@ function openResponseInput() {
     _isResponseMode = true;
     const inputTitle = document.querySelector('.input-title');
     inputTitle.textContent = 'Send Support';
+
+    // Hide emotion selector
+    const emotionSelector = $('#emotion-selector');
+    if (emotionSelector) emotionSelector.style.display = 'none';
+
     $('#input-text').value = '';
     $('#char-count').textContent = '0 / 280';
     $('#btn-submit').disabled = true;
