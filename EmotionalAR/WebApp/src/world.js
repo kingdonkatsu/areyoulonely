@@ -140,17 +140,24 @@ export function getElevation(lat, lng) {
   // Check for buildings to place character on roof
   const point = _map.project([lng, lat]);
   // Query all layers, filter for buildings
-  const features = _map.queryRenderedFeatures(point).filter(f =>
-    f.layer.id.includes('building') ||
-    (f.properties && (f.properties.height || f.properties.render_height))
-  );
+  const features = _map.queryRenderedFeatures(point).filter(f => {
+    const type = f.layer.type;
+    return type === 'fill-extrusion' || type === 'model' || f.layer.id.includes('building');
+  });
 
   if (features.length > 0) {
     // Find the max height among features
     let maxHeight = 0;
     for (const f of features) {
-      const h = f.properties.height || f.properties.render_height || (f.layer.id.includes('building') ? 10 : 0);
-      if (h > maxHeight) maxHeight = h;
+      // Try to get explicit height
+      let h = f.properties.height || f.properties.render_height;
+
+      // Fallback: If it's a building but no height, assume ~15m (4-5 stories)
+      if (!h && (f.layer.type === 'fill-extrusion' || f.layer.type === 'model')) {
+        h = 15;
+      }
+
+      if (h && h > maxHeight) maxHeight = h;
     }
     // Add height if found. Note: height is usually structural height.
     // If it's a 3D model, we might not get precise roof height, but extrusion height works.
