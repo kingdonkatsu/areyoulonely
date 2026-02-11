@@ -42,15 +42,32 @@ export function initWorld() {
       container: 'map',
       style: 'mapbox://styles/mapbox/standard',
       center: [0, 0],
-      zoom: 18,
-      minZoom: 18.5, // Strict limit: roughly 150m view radius
-      pitch: 60,       // Tilt for 3D view
+      zoom: 18.5,
+      minZoom: 18.5, // strict
+      maxZoom: 18.5, // strict
+      pitch: 60,
       bearing: 0,
       antialias: true,
+
+      // Interactions: Lock everything except rotation
       interactive: true,
-      dragRotate: true,
-      pitchWithRotate: true,
-      touchZoomRotate: true,
+      dragPan: false,      // No moving
+      scrollZoom: false,   // No zooming
+      boxZoom: false,
+      doubleClickZoom: false,
+      keyboard: false,
+
+      dragRotate: true,    // Rotate allowed
+      touchZoomRotate: true, // Rotate allowed (zoom locked by min/maxZoom)
+      pitchWithRotate: false, // Keep pitch fixed at 60? content says "I can only rotate". pitch is usually fine.
+      // But let's restrict it if user said "only rotate".
+      // Actually, "rotate" usually implies bearing.
+      // I'll disable pitch adjustment to be safe? 
+      // "The middle point should be where my character is and I can only rotate"
+      // Most mobile games allow pitch. I'll leave pitchWithRotate: true?
+      // Or maybe false to keep the "Pokemon Go" look (fixed pitch).
+      // I'll set pitchWithRotate: false to be strict about "only rotate".
+      touchPitch: false,
       config: {
         basemap: {
           lightPreset: 'dawn',
