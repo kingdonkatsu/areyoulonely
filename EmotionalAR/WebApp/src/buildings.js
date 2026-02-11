@@ -1,44 +1,70 @@
+// ═══════════════════════════════════════════════════════════════
+// Buildings — MapTiler vector tile → 3D extruded footprints
+// ═══════════════════════════════════════════════════════════════
+
 import * as THREE from 'three';
+import Pbf from 'pbf';
+import { VectorTile } from '@mapbox/vector-tile';
+import { TILE_ZOOM, latLonToTile, fetchMapTilerTile } from './config.js';
 
-let _scene;
-let _buildingsGroup;
-const BUILDING_COLOR_PALETTE = [
-    '#FFAB76', // Peach
-    '#FFD580', // Golden
-    '#6B4C7D', // Purple/Mauve
-    '#A2D2FF', // Soft Blue
-    '#BDE0FE', // Light Blue
-    '#FFC8DD', // Pink
-    '#FFAFCC'  // Deeper Pink
+let _scene = null;
+let _buildingsGroup = null;
+
+// ── Warm AC building colors ──────────────────────────────────
+const BUILDING_COLORS = [
+    0xF5E6D3, // Warm cream
+    0xE8D5C4, // Sandy beige
+    0xF0DFC8, // Soft peach
+    0xD4C4B0, // Warm taupe
+    0xE6D8CC, // Light mocha
+    0xF2E0D0, // Pale apricot
+    0xDCD0C0, // Oatmeal
 ];
 
-const OVERPASS_MIRRORS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://overpass.osm.ch/api/interpreter'
-];
-let currentMirrorIndex = 0;
-
-/** Initialize building group */
+/** Initialize the buildings system. */
 export function initBuildings(scene) {
     _scene = scene;
     _buildingsGroup = new THREE.Group();
-    _buildingsGroup.name = 'osm_buildings';
+    _buildingsGroup.name = 'buildings';
     _scene.add(_buildingsGroup);
 }
 
-/** Fetch building footprints and extrude them. Returns count of buildings rendered. */
-export async function updateBuildings(lat, lng, radius = 400) {
-    console.log(`[Buildings] Fetching OSM near ${lat}, ${lng}...`);
+const RENDER_RADIUS = 200; // metres
 
-    const query = `[out:json][timeout:25];way(around:${radius},${lat},${lng})["building"];(._;>;);out;`;
+/** Fetch building data from MapTiler and extrude. Returns building count. */
+export async function updateBuildings(lat, lng) {
+    console.log(`[Buildings] Fetching from MapTiler near ${lat.toFixed(5)}, ${lng.toFixed(5)}...`);
 
-    const data = await fetchWithMirrors(query);
-    if (data) {
-        clearBuildings();
-        processOSMData(data, lat, lng);
+    const centerTile = latLonToTile(lat, lng, TILE_ZOOM);
+
+    clearBuildings();
+
+    const buffer = await fetchMapTilerTile('v3', TILE_ZOOM, centerTile.x, centerTile.y);
+    if (!buffer) {
+        console.log('[Buildings] No tile data.');
+        return 0;
     }
-    return _buildingsGroup.children.length;
+
+    const tile = new VectorTile(new Pbf(buffer));
+    const buildingLayer = tile.layers['building'];
+    if (!buildingLayer) {
+        console.log('[Buildings] No building layer in tile.');
+        return 0;
+    }
+
+    let totalBuildings = 0;
+    for (let i = 0; i < buildingLayer.length; i++) {
+        const feature = buildingLayer.feature(i);
+        const geojson = feature.toGeoJSON(centerTile.x, centerTile.y, TILE_ZOOM);
+
+        if (geojson.geometry.type === 'Polygon' || geojson.geometry.type === 'MultiPolygon') {
+            const built = extrudeBuilding(geojson, lat, lng);
+            if (built) totalBuildings++;
+        }
+    }
+
+    console.log(`[Buildings] Rendered ${totalBuildings} buildings within ${RENDER_RADIUS}m.`);
+    return totalBuildings;
 }
 
 /** Get count of rendered buildings. */
@@ -46,141 +72,103 @@ export function getBuildingCount() {
     return _buildingsGroup ? _buildingsGroup.children.length : 0;
 }
 
-async function fetchWithMirrors(query, attempt = 0, maxAttempts = 5) {
-    if (attempt >= maxAttempts) {
-        console.error(`[Buildings] All ${maxAttempts} fetch attempts exhausted.`);
-        return null;
-    }
-
-    const mirror = OVERPASS_MIRRORS[currentMirrorIndex];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
-
-    try {
-        const res = await fetch(`${mirror}?data=${encodeURIComponent(query)}`, {
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const text = await res.text();
-        if (text.trim().startsWith('<')) {
-            throw new Error('Received HTML instead of JSON (Server Busy)');
-        }
-
-        return JSON.parse(text);
-    } catch (err) {
-        clearTimeout(timeoutId);
-        currentMirrorIndex = (currentMirrorIndex + 1) % OVERPASS_MIRRORS.length;
-
-        const isNewCycle = (attempt + 1) % OVERPASS_MIRRORS.length === 0;
-        const delay = isNewCycle ? 15000 : 1000;
-
-        console.warn(`[Buildings] Mirror fail: ${err.message}. Retrying mirror ${currentMirrorIndex} in ${delay / 1000}s... (attempt ${attempt + 1}/${maxAttempts})`);
-
-        await new Promise(r => setTimeout(r, delay));
-        return fetchWithMirrors(query, attempt + 1, maxAttempts);
-    }
-}
+// ═══════════════════════════════════════════════════════════════
+// INTERNALS
+// ═══════════════════════════════════════════════════════════════
 
 function clearBuildings() {
+    if (!_buildingsGroup) return;
     while (_buildingsGroup.children.length > 0) {
         const child = _buildingsGroup.children[0];
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-            if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-            else child.material.dispose();
-        }
         _buildingsGroup.remove(child);
+        child.traverse(c => {
+            if (c.geometry) c.geometry.dispose();
+            if (c.material) {
+                if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+                else c.material.dispose();
+            }
+        });
     }
 }
 
-function processOSMData(data, refLat, refLng) {
-    const nodes = {};
-    data.elements.forEach(el => {
-        if (el.type === 'node') nodes[el.id] = el;
-    });
+function extrudeBuilding(geojson, refLat, refLng) {
+    try {
+        const coords = geojson.geometry.type === 'MultiPolygon'
+            ? geojson.geometry.coordinates[0][0]
+            : geojson.geometry.coordinates[0];
 
-    data.elements.forEach(el => {
-        if (el.type === 'way' && el.tags && el.tags.building) {
-            const points = el.nodes.map(nodeId => {
-                const node = nodes[nodeId];
-                if (!node) return null;
-                return latLonToMeters(node.lat, node.lon, refLat, refLng);
-            }).filter(p => p !== null);
+        if (!coords || coords.length < 3) return false;
 
-            if (points.length > 2) {
-                createBuilding(points, el.tags);
-            }
+        // Convert GeoJSON [lon, lat] to local meters
+        const points = coords.map(([lon, lat]) => latLonToMeters(lat, lon, refLat, refLng));
+
+        // Skip if centroid is beyond render radius
+        const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+        const cz = points.reduce((s, p) => s + p.z, 0) / points.length;
+        if (Math.sqrt(cx * cx + cz * cz) > RENDER_RADIUS) return false;
+
+        // Create shape
+        const shape = new THREE.Shape();
+        shape.moveTo(points[0].x, points[0].z);
+        for (let i = 1; i < points.length; i++) {
+            shape.lineTo(points[i].x, points[i].z);
         }
-    });
-}
 
-function createBuilding(points, tags) {
-    // Create Shape
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].z);
-    for (let i = 1; i < points.length; i++) {
-        shape.lineTo(points[i].x, points[i].z);
+        // Height from properties, or generate procedurally
+        const props = geojson.properties || {};
+        let height = props.render_height || props.height;
+        if (!height || height <= 0) {
+            // Procedural height: 3–12m (AC style low buildings)
+            height = 3 + Math.random() * 9;
+        }
+
+        const extrudeSettings = { depth: height, bevelEnabled: false };
+        const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+        geometry.rotateX(-Math.PI / 2);
+
+        const color = BUILDING_COLORS[Math.floor(Math.random() * BUILDING_COLORS.length)];
+        const material = new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.85,
+            metalness: 0.05
+        });
+
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+
+        _buildingsGroup.add(mesh);
+
+        // Pop-in animation
+        mesh.scale.set(1, 0, 1);
+        animatePopIn(mesh);
+
+        return true;
+    } catch (err) {
+        // Silently skip malformed buildings
+        return false;
     }
-
-    const height = parseFloat(tags.height) || (parseFloat(tags['building:levels']) * 3) || (Math.random() * 10 + 10);
-
-    const extrudeSettings = {
-        depth: height,
-        bevelEnabled: true,
-        bevelThickness: 0.5,
-        bevelSize: 0.5,
-        bevelSegments: 2
-    };
-
-    const geo = new THREE.ExtrudeGeometry(shape, extrudeSettings);
-    geo.rotateX(-Math.PI / 2); // Flip to up axis
-
-    const color = BUILDING_COLOR_PALETTE[Math.floor(Math.random() * BUILDING_COLOR_PALETTE.length)];
-    const mat = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: 0.7,
-        metalness: 0.1
-    });
-
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
-    // Slight random offset to height to avoid Z-fighting on roofs
-    mesh.position.y = Math.random() * 0.1;
-
-    // Pop-in animation scale
-    mesh.scale.set(1, 0.01, 1);
-
-    _buildingsGroup.add(mesh);
-
-    // Simple pop-in animation
-    new Promise(resolve => {
-        let sc = 0.01;
-        const anim = () => {
-            sc += (1.0 - sc) * 0.1;
-            mesh.scale.set(1, sc, 1);
-            if (sc < 0.99) requestAnimationFrame(anim);
-            else {
-                mesh.scale.set(1, 1, 1);
-                resolve();
-            }
-        };
-        anim();
-    });
 }
 
-/** 🌐 Lat/Lon to Local Meters (simple equirectangular) */
 function latLonToMeters(lat, lon, refLat, refLng) {
-    const latRad = refLat * Math.PI / 180;
-    const METERS_PER_DEGREE_LAT = 111320;
-    const METERS_PER_DEGREE_LON = 40075000 * Math.cos(latRad) / 360;
+    const x = (lon - refLng) * 111320 * Math.cos(refLat * Math.PI / 180);
+    const z = (lat - refLat) * 110574;
+    return { x, z };
+}
 
-    return {
-        x: (lon - refLng) * METERS_PER_DEGREE_LON,
-        z: -(lat - refLat) * METERS_PER_DEGREE_LAT // -Z is North in Three.js
-    };
+function animatePopIn(mesh) {
+    const startTime = performance.now();
+    const duration = 600;
+
+    function tick() {
+        const t = Math.min((performance.now() - startTime) / duration, 1);
+        const s = elasticOut(t);
+        mesh.scale.y = s;
+        if (t < 1) requestAnimationFrame(tick);
+    }
+    tick();
+}
+
+function elasticOut(t) {
+    return Math.sin(-13.0 * (t + 1.0) * Math.PI / 2) * Math.pow(2.0, -10.0 * t) + 1.0;
 }

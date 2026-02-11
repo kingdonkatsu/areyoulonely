@@ -1,10 +1,11 @@
 // ═══════════════════════════════════════════════════════════════
-// Environment — OSM-driven street features, vegetation, furniture
-// Replaces furniture.js with expanded coverage
+// Environment — MapTiler vector tile → street features, vegetation
 // ═══════════════════════════════════════════════════════════════
 
 import * as THREE from 'three';
-import { gpsToLocal, getPosition } from './gps.js';
+import Pbf from 'pbf';
+import { VectorTile } from '@mapbox/vector-tile';
+import { TILE_ZOOM, latLonToTile, fetchMapTilerTile } from './config.js';
 
 let _scene = null;
 let _envGroup = null;
@@ -14,38 +15,33 @@ const _down = new THREE.Vector3(0, -1, 0);
 
 // ── Warm Animal Crossing Palette ───────────────────────────────
 const COLORS = {
-    road: 0x8A8A7A,        // Muted grey-beige (AC path style)
-    footpath: 0xDEB887,    // BurlyWood (dirt path)
-    cycleway: 0xB0C4DE,    // Light steel blue
-    fence: 0xA0522D,       // Sienna (wooden fence)
-    wall: 0xD2B48C,        // Tan (stone wall)
-    treeTrunk: 0x8B6914,   // Dark goldenrod
-    treeLeaf1: 0x5DAA68,   // Sage green
-    treeLeaf2: 0x7EC87E,   // Light green
-    treeLeaf3: 0x42A55F,   // Deep green
-    bush: 0x4A8B5C,        // Darker green
-    flower1: 0xFF6B8A,     // Pink
-    flower2: 0xFFD93D,     // Yellow
-    flower3: 0xB19CD9,     // Lavender
-    flower4: 0xFF9656,     // Orange
-    grass: 0x7FC97E,       // Grass green
-    bench_wood: 0x8B4513,  // Saddlebrown
-    bench_metal: 0xCD7F32, // Bronze
-    station_platform: 0xC0C0C0, // Silver-grey
-    station_roof: 0x6B4C7D,     // Purple-mauve
-    busstop_metal: 0xCD7F32,    // Bronze
-    busstop_glass: 0xADD8E6,    // Light blue
-    busstop_glow: 0xFFAB76,     // Warm orange sign
-    bin_body: 0xCD7F32,    // Bronze
-    bin_lid: 0xFFAB76,     // Warm orange
+    road: 0x8A8A7A,
+    footpath: 0xDEB887,
+    cycleway: 0xB0C4DE,
+    rail: 0x808080,
+    fence: 0xA0522D,
+    wall: 0xD2B48C,
+    treeTrunk: 0x8B6914,
+    treeLeaf1: 0x5DAA68,
+    treeLeaf2: 0x7EC87E,
+    treeLeaf3: 0x42A55F,
+    bush: 0x4A8B5C,
+    flower1: 0xFF6B8A,
+    flower2: 0xFFD93D,
+    flower3: 0xB19CD9,
+    flower4: 0xFF9656,
+    grass: 0x7FC97E,
+    bench_wood: 0x8B4513,
+    bench_metal: 0xCD7F32,
+    station_platform: 0xC0C0C0,
+    station_roof: 0x6B4C7D,
+    busstop_metal: 0xCD7F32,
+    busstop_glass: 0xADD8E6,
+    busstop_glow: 0xFFAB76,
+    bin_body: 0xCD7F32,
+    bin_lid: 0xFFAB76,
+    water: 0x7CB9E8,
 };
-
-const OVERPASS_MIRRORS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://overpass.osm.ch/api/interpreter'
-];
-let currentMirrorIndex = 0;
 
 /** Initialize the environment manager. */
 export function initEnvironment(scene) {
@@ -55,202 +51,208 @@ export function initEnvironment(scene) {
     _scene.add(_envGroup);
 }
 
-/** Fetch all environment data from OSM and render it. */
-export async function updateEnvironment(lat, lng, radius = 300) {
-    console.log(`[Environment] Fetching OSM features near ${lat.toFixed(5)}, ${lng.toFixed(5)}...`);
+const RENDER_RADIUS = 200; // metres
 
-    // Single comprehensive query for all environment types
-    const query = `[out:json][timeout:30];(
-        way["highway"](around:${radius},${lat},${lng});
-        node["highway"="bus_stop"](around:${radius},${lat},${lng});
-        node["railway"="station"](around:${radius},${lat},${lng});
-        way["railway"="platform"](around:${radius},${lat},${lng});
-        node["amenity"="bench"](around:${radius},${lat},${lng});
-        node["amenity"="waste_basket"](around:${radius},${lat},${lng});
-        way["barrier"](around:${radius},${lat},${lng});
-        node["natural"="tree"](around:${radius},${lat},${lng});
-        way["natural"="tree_row"](around:${radius},${lat},${lng});
-        way["landuse"="grass"](around:${radius},${lat},${lng});
-        way["leisure"="garden"](around:${radius},${lat},${lng});
-        way["leisure"="park"](around:${radius},${lat},${lng});
-    );(._;>;);out body;`;
+/** Fetch environment features from MapTiler and render. Returns feature count. */
+export async function updateEnvironment(lat, lng) {
+    console.log(`[Environment] Fetching MapTiler tile near ${lat.toFixed(5)}, ${lng.toFixed(5)}...`);
 
-    const data = await fetchWithMirrors(query);
-    if (!data || !data.elements) {
-        console.warn('[Environment] No data received.');
+    const centerTile = latLonToTile(lat, lng, TILE_ZOOM);
+    const refLat = lat;
+    const refLng = lng;
+
+    clearEnvironment();
+
+    const buffer = await fetchMapTilerTile('v3', TILE_ZOOM, centerTile.x, centerTile.y);
+    if (!buffer) {
+        console.log('[Environment] No tile data.');
         return 0;
     }
 
-    clearEnvironment();
-    const count = processEnvironmentData(data, lat, lng);
-    console.log(`[Environment] Rendered ${count} features.`);
-    return count;
+    const tile = new VectorTile(new Pbf(buffer));
+    const tx = centerTile.x, ty = centerTile.y;
+    let totalCount = 0;
+
+    totalCount += processTransportation(tile, tx, ty, refLat, refLng);
+    totalCount += processPOI(tile, tx, ty, refLat, refLng);
+    totalCount += processLanduse(tile, tx, ty, refLat, refLng);
+    totalCount += processWater(tile, tx, ty, refLat, refLng);
+
+    // Scatter decorative trees along roads (AC feel)
+    scatterDecorativeTrees(refLat, refLng);
+
+    console.log(`[Environment] Rendered ${totalCount} features within ${RENDER_RADIUS}m.`);
+    return totalCount;
 }
 
-/** Get count of rendered environment items. */
+/** Get environment item count. */
 export function getEnvironmentCount() {
     return _items.size;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DATA FETCHING
+// LAYER PROCESSORS
 // ═══════════════════════════════════════════════════════════════
 
-async function fetchWithMirrors(query, attempt = 0, maxAttempts = 5) {
-    if (attempt >= maxAttempts) {
-        console.error(`[Environment] All ${maxAttempts} fetch attempts exhausted.`);
-        return null;
-    }
+function processTransportation(tile, tx, ty, refLat, refLng) {
+    const layer = tile.layers['transportation'];
+    if (!layer) return 0;
 
-    const mirror = OVERPASS_MIRRORS[currentMirrorIndex];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-
-    try {
-        const res = await fetch(`${mirror}?data=${encodeURIComponent(query)}`, {
-            signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const text = await res.text();
-        if (text.trim().startsWith('<')) {
-            throw new Error('Received HTML instead of JSON (Server Busy)');
-        }
-
-        return JSON.parse(text);
-    } catch (err) {
-        clearTimeout(timeoutId);
-        currentMirrorIndex = (currentMirrorIndex + 1) % OVERPASS_MIRRORS.length;
-
-        const isNewCycle = (attempt + 1) % OVERPASS_MIRRORS.length === 0;
-        const delay = isNewCycle ? 10000 : 1500;
-
-        console.warn(`[Environment] Mirror fail: ${err.message}. Retrying mirror ${currentMirrorIndex} in ${delay / 1000}s... (attempt ${attempt + 1}/${maxAttempts})`);
-
-        await new Promise(r => setTimeout(r, delay));
-        return fetchWithMirrors(query, attempt + 1, maxAttempts);
-    }
-}
-
-function clearEnvironment() {
-    for (const [id, item] of _items) {
-        _envGroup.remove(item.group);
-        item.group.traverse(child => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-                else child.material.dispose();
-            }
-        });
-    }
-    _items.clear();
-}
-
-// ═══════════════════════════════════════════════════════════════
-// DATA PROCESSING
-// ═══════════════════════════════════════════════════════════════
-
-function processEnvironmentData(data, refLat, refLng) {
-    const nodeMap = {};
     let count = 0;
+    for (let i = 0; i < layer.length; i++) {
+        const feature = layer.feature(i);
+        const geojson = feature.toGeoJSON(tx, ty, TILE_ZOOM);
+        const props = geojson.properties || {};
+        const cls = props.class;
 
-    // First pass: index all nodes (for way geometry resolution)
-    data.elements.forEach(el => {
-        if (el.type === 'node') nodeMap[el.id] = el;
-    });
+        if (geojson.geometry.type !== 'LineString' && geojson.geometry.type !== 'MultiLineString') continue;
 
-    // Second pass: process features
-    data.elements.forEach(el => {
-        if (el.type === 'node' && el.tags) {
-            const local = latLonToMeters(el.lat, el.lon, refLat, refLng);
+        const coords = geojson.geometry.type === 'MultiLineString'
+            ? geojson.geometry.coordinates[0]
+            : geojson.geometry.coordinates;
 
-            if (el.tags.highway === 'bus_stop') {
-                spawnBusStop(el.id, local);
-                count++;
-            } else if (el.tags.amenity === 'bench') {
-                spawnBench(el.id, local);
-                count++;
-            } else if (el.tags.amenity === 'waste_basket') {
-                spawnBin(el.id, local);
-                count++;
-            } else if (el.tags.natural === 'tree') {
-                spawnTree(el.id, local);
-                count++;
-            } else if (el.tags.railway === 'station') {
-                spawnStation(el.id, local);
-                count++;
-            }
+        const points = coords.map(([lon, lat]) => latLonToMeters(lat, lon, refLat, refLng));
+        if (points.length < 2) continue;
+
+        // Skip if midpoint is beyond render radius
+        const mid = points[Math.floor(points.length / 2)];
+        if (Math.sqrt(mid.x * mid.x + mid.z * mid.z) > RENDER_RADIUS) continue;
+
+        const id = `road_${tx}_${ty}_${i}`;
+
+        if (cls === 'motorway' || cls === 'trunk' || cls === 'primary') {
+            spawnRoad(id, points, 7, COLORS.road, 0.05);
+        } else if (cls === 'secondary' || cls === 'tertiary') {
+            spawnRoad(id, points, 5, COLORS.road, 0.04);
+        } else if (cls === 'minor' || cls === 'service' || cls === 'street') {
+            spawnRoad(id, points, 3.5, COLORS.road, 0.03);
+        } else if (cls === 'path' || cls === 'track') {
+            spawnRoad(id, points, 1.5, COLORS.footpath, 0.02);
+        } else if (cls === 'rail' || cls === 'transit') {
+            spawnRail(id, points);
+        } else {
+            // Default road
+            spawnRoad(id, points, 3, COLORS.road, 0.03);
         }
-
-        if (el.type === 'way' && el.tags && el.nodes) {
-            const points = resolveWayPoints(el.nodes, nodeMap, refLat, refLng);
-            if (points.length < 2) return;
-
-            if (el.tags.highway) {
-                spawnRoad(el.id, points, el.tags);
-                count++;
-            } else if (el.tags.barrier) {
-                spawnFence(el.id, points, el.tags);
-                count++;
-            } else if (el.tags.natural === 'tree_row') {
-                spawnTreeRow(el.id, points);
-                count++;
-            } else if (el.tags.landuse === 'grass' || el.tags.leisure === 'garden' || el.tags.leisure === 'park') {
-                spawnGrassPatch(el.id, points);
-                count++;
-            } else if (el.tags.railway === 'platform') {
-                spawnPlatform(el.id, points);
-                count++;
-            }
-        }
-    });
-
+        count++;
+    }
     return count;
 }
 
-function resolveWayPoints(nodeIds, nodeMap, refLat, refLng) {
-    return nodeIds
-        .map(id => {
-            const node = nodeMap[id];
-            if (!node) return null;
-            return latLonToMeters(node.lat, node.lon, refLat, refLng);
-        })
-        .filter(p => p !== null);
-}
+function processPOI(tile, tx, ty, refLat, refLng) {
+    const layer = tile.layers['poi'];
+    if (!layer) return 0;
 
-function latLonToMeters(lat, lon, refLat, refLng) {
-    const latRad = refLat * Math.PI / 180;
-    const METERS_PER_DEGREE_LAT = 111320;
-    const METERS_PER_DEGREE_LON = 40075000 * Math.cos(latRad) / 360;
-    return {
-        x: (lon - refLng) * METERS_PER_DEGREE_LON,
-        z: -(lat - refLat) * METERS_PER_DEGREE_LAT
-    };
-}
+    let count = 0;
+    for (let i = 0; i < layer.length; i++) {
+        const feature = layer.feature(i);
+        const geojson = feature.toGeoJSON(tx, ty, TILE_ZOOM);
+        const props = geojson.properties || {};
+        const cls = props.class;
+        const subclass = props.subclass;
 
-function findGroundHeight(x, z) {
-    if (!_scene) return 0;
-    _raycaster.set(new THREE.Vector3(x, 1000, z), _down);
-    const hits = _raycaster.intersectObjects(_scene.children, true);
-    for (const hit of hits) {
-        if (hit.object.name !== 'environment' &&
-            !hit.object.parent?.name?.includes('env_') &&
-            !hit.object.name.includes('node')) {
-            return hit.point.y;
+        if (geojson.geometry.type !== 'Point') continue;
+
+        const [lon, lat] = geojson.geometry.coordinates;
+        const local = latLonToMeters(lat, lon, refLat, refLng);
+
+        // Skip if beyond render radius
+        if (Math.sqrt(local.x * local.x + local.z * local.z) > RENDER_RADIUS) continue;
+
+        const id = `poi_${tx}_${ty}_${i}`;
+
+        if (cls === 'bus' || subclass === 'bus_stop' || subclass === 'bus_station') {
+            spawnBusStop(id, local);
+            count++;
+        } else if (cls === 'railway' || subclass === 'station' || subclass === 'halt') {
+            spawnStation(id, local);
+            count++;
+        } else if (subclass === 'bench') {
+            spawnBench(id, local);
+            count++;
+        } else if (subclass === 'waste_basket' || subclass === 'recycling') {
+            spawnBin(id, local);
+            count++;
+        } else if (cls === 'park' || cls === 'garden' || subclass === 'playground') {
+            // Spawn a tree cluster for park/garden POIs
+            spawnTree(id, local);
+            count++;
         }
     }
-    return 0;
+    return count;
 }
 
-function addItem(id, group, type) {
-    _envGroup.add(group);
-    _items.set(id, { group, type });
+function processLanduse(tile, tx, ty, refLat, refLng) {
+    let count = 0;
 
-    // Pop-in bounce animation
-    group.scale.set(0, 0, 0);
-    bounceIn(group);
+    // Process both landuse and park layers
+    for (const layerName of ['landuse', 'park', 'landcover']) {
+        const layer = tile.layers[layerName];
+        if (!layer) continue;
+
+        for (let i = 0; i < layer.length; i++) {
+            const feature = layer.feature(i);
+            const geojson = feature.toGeoJSON(tx, ty, TILE_ZOOM);
+            const props = geojson.properties || {};
+            const cls = props.class;
+
+            if (geojson.geometry.type !== 'Polygon' && geojson.geometry.type !== 'MultiPolygon') continue;
+
+            const coords = geojson.geometry.type === 'MultiPolygon'
+                ? geojson.geometry.coordinates[0][0]
+                : geojson.geometry.coordinates[0];
+
+            const points = coords.map(([lon, lat]) => latLonToMeters(lat, lon, refLat, refLng));
+            if (points.length < 3) continue;
+
+            // Skip if centroid is beyond render radius
+            const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+            const cz = points.reduce((s, p) => s + p.z, 0) / points.length;
+            if (Math.sqrt(cx * cx + cz * cz) > RENDER_RADIUS) continue;
+
+            const id = `land_${layerName}_${tx}_${ty}_${i}`;
+
+            if (cls === 'grass' || cls === 'park' || cls === 'garden' ||
+                cls === 'meadow' || cls === 'village_green' || cls === 'recreation_ground') {
+                spawnGrassPatch(id, points);
+                count++;
+            } else if (cls === 'forest' || cls === 'wood') {
+                spawnForestPatch(id, points);
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+function processWater(tile, tx, ty, refLat, refLng) {
+    const layer = tile.layers['water'];
+    if (!layer) return 0;
+
+    let count = 0;
+    for (let i = 0; i < layer.length; i++) {
+        const feature = layer.feature(i);
+        const geojson = feature.toGeoJSON(tx, ty, TILE_ZOOM);
+
+        if (geojson.geometry.type !== 'Polygon' && geojson.geometry.type !== 'MultiPolygon') continue;
+
+        const coords = geojson.geometry.type === 'MultiPolygon'
+            ? geojson.geometry.coordinates[0][0]
+            : geojson.geometry.coordinates[0];
+
+        const points = coords.map(([lon, lat]) => latLonToMeters(lat, lon, refLat, refLng));
+        if (points.length < 3) continue;
+
+        // Skip if centroid is beyond render radius
+        const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
+        const cz = points.reduce((s, p) => s + p.z, 0) / points.length;
+        if (Math.sqrt(cx * cx + cz * cz) > RENDER_RADIUS) continue;
+
+        const id = `water_${tx}_${ty}_${i}`;
+        spawnWater(id, points);
+        count++;
+    }
+    return count;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -259,47 +261,19 @@ function addItem(id, group, type) {
 
 // ── Roads & Paths ─────────────────────────────────────────────
 
-function spawnRoad(id, points, tags) {
+function spawnRoad(id, points, width, color, yOffset) {
     const group = new THREE.Group();
     group.name = `env_road_${id}`;
 
-    const highwayType = tags.highway;
-    let width, color, yOffset;
-
-    switch (highwayType) {
-        case 'motorway':
-        case 'trunk':
-        case 'primary':
-            width = 7; color = COLORS.road; yOffset = 0.05; break;
-        case 'secondary':
-        case 'tertiary':
-            width = 5; color = COLORS.road; yOffset = 0.04; break;
-        case 'residential':
-        case 'unclassified':
-        case 'service':
-            width = 3.5; color = COLORS.road; yOffset = 0.03; break;
-        case 'footway':
-        case 'path':
-        case 'pedestrian':
-            width = 1.5; color = COLORS.footpath; yOffset = 0.02; break;
-        case 'cycleway':
-            width = 2; color = COLORS.cycleway; yOffset = 0.025; break;
-        case 'steps':
-            width = 2; color = COLORS.footpath; yOffset = 0.03; break;
-        default:
-            width = 3; color = COLORS.road; yOffset = 0.03;
-    }
-
-    // Build road as a flat ribbon
-    const roadShape = buildRibbonGeometry(points, width);
-    if (roadShape) {
+    const geo = buildRibbonGeometry(points, width);
+    if (geo) {
         const mat = new THREE.MeshStandardMaterial({
             color,
             roughness: 0.95,
             metalness: 0,
             side: THREE.DoubleSide
         });
-        const mesh = new THREE.Mesh(roadShape, mat);
+        const mesh = new THREE.Mesh(geo, mat);
         mesh.rotation.x = -Math.PI / 2;
         mesh.position.y = yOffset;
         mesh.receiveShadow = true;
@@ -307,6 +281,62 @@ function spawnRoad(id, points, tags) {
     }
 
     addItem(id, group, 'road');
+}
+
+function spawnRail(id, points) {
+    const group = new THREE.Group();
+    group.name = `env_rail_${id}`;
+
+    // Two parallel rails
+    const offset = 0.7;
+    for (const side of [-1, 1]) {
+        const railPoints = points.map(p => {
+            const idx = points.indexOf(p);
+            let nx = 0, nz = 0;
+            if (idx < points.length - 1) {
+                const dx = points[idx + 1].x - p.x;
+                const dz = points[idx + 1].z - p.z;
+                const len = Math.sqrt(dx * dx + dz * dz) || 1;
+                nx = -dz / len;
+                nz = dx / len;
+            }
+            return { x: p.x + nx * offset * side, z: p.z + nz * offset * side };
+        });
+
+        const geo = buildRibbonGeometry(railPoints, 0.15);
+        if (geo) {
+            const mat = new THREE.MeshStandardMaterial({ color: COLORS.rail, metalness: 0.6, roughness: 0.4 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.y = 0.06;
+            group.add(mesh);
+        }
+    }
+
+    // Sleepers (cross ties)
+    const sleeperMat = new THREE.MeshStandardMaterial({ color: COLORS.fence, roughness: 0.9 });
+    let dist = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i], b = points[i + 1];
+        const segLen = Math.sqrt((b.x - a.x) ** 2 + (b.z - a.z) ** 2);
+        const dx = (b.x - a.x) / segLen;
+        const dz = (b.z - a.z) / segLen;
+        const angle = Math.atan2(b.x - a.x, b.z - a.z);
+
+        while (dist < segLen) {
+            const sx = a.x + dx * dist;
+            const sz = a.z + dz * dist;
+            const sleeperGeo = new THREE.BoxGeometry(2, 0.08, 0.15);
+            const sleeper = new THREE.Mesh(sleeperGeo, sleeperMat);
+            sleeper.position.set(sx, 0.02, sz);
+            sleeper.rotation.y = angle;
+            group.add(sleeper);
+            dist += 0.8;
+        }
+        dist -= segLen;
+    }
+
+    addItem(id, group, 'rail');
 }
 
 function buildRibbonGeometry(points, width) {
@@ -318,7 +348,6 @@ function buildRibbonGeometry(points, width) {
 
     for (let i = 0; i < points.length; i++) {
         let dx, dz;
-
         if (i === 0) {
             dx = points[1].x - points[0].x;
             dz = points[1].z - points[0].z;
@@ -331,11 +360,9 @@ function buildRibbonGeometry(points, width) {
         }
 
         const len = Math.sqrt(dx * dx + dz * dz) || 1;
-        // Perpendicular
         const nx = -dz / len;
         const nz = dx / len;
 
-        // Two vertices per point: left and right of centerline
         vertices.push(
             points[i].x + nx * halfW, points[i].z + nz * halfW, 0,
             points[i].x - nx * halfW, points[i].z - nz * halfW, 0
@@ -343,10 +370,7 @@ function buildRibbonGeometry(points, width) {
     }
 
     for (let i = 0; i < points.length - 1; i++) {
-        const a = i * 2;
-        const b = i * 2 + 1;
-        const c = (i + 1) * 2;
-        const d = (i + 1) * 2 + 1;
+        const a = i * 2, b = i * 2 + 1, c = (i + 1) * 2, d = (i + 1) * 2 + 1;
         indices.push(a, c, b, b, c, d);
     }
 
@@ -355,67 +379,6 @@ function buildRibbonGeometry(points, width) {
     geo.setIndex(indices);
     geo.computeVertexNormals();
     return geo;
-}
-
-// ── Fences & Walls ────────────────────────────────────────────
-
-function spawnFence(id, points, tags) {
-    const group = new THREE.Group();
-    group.name = `env_fence_${id}`;
-
-    const isWall = tags.barrier === 'wall' || tags.barrier === 'retaining_wall';
-    const height = isWall ? 1.5 : 0.9;
-    const color = isWall ? COLORS.wall : COLORS.fence;
-
-    for (let i = 0; i < points.length - 1; i++) {
-        const a = points[i];
-        const b = points[i + 1];
-        const dx = b.x - a.x;
-        const dz = b.z - a.z;
-        const len = Math.sqrt(dx * dx + dz * dz);
-        if (len < 0.2) continue;
-
-        const cx = (a.x + b.x) / 2;
-        const cz = (a.z + b.z) / 2;
-        const angle = Math.atan2(dx, dz);
-
-        if (isWall) {
-            // Solid wall block
-            const wallGeo = new THREE.BoxGeometry(len, height, 0.3);
-            const wallMat = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
-            const wall = new THREE.Mesh(wallGeo, wallMat);
-            wall.position.set(cx, height / 2, cz);
-            wall.rotation.y = angle;
-            wall.castShadow = true;
-            wall.receiveShadow = true;
-            group.add(wall);
-        } else {
-            // Fence posts + rail
-            const postCount = Math.max(2, Math.floor(len / 2));
-            const postMat = new THREE.MeshStandardMaterial({ color, roughness: 0.85 });
-
-            for (let p = 0; p < postCount; p++) {
-                const t = p / (postCount - 1);
-                const px = a.x + dx * t;
-                const pz = a.z + dz * t;
-
-                const postGeo = new THREE.CylinderGeometry(0.04, 0.04, height, 6);
-                const post = new THREE.Mesh(postGeo, postMat);
-                post.position.set(px, height / 2, pz);
-                post.castShadow = true;
-                group.add(post);
-            }
-
-            // Horizontal rail
-            const railGeo = new THREE.BoxGeometry(len, 0.06, 0.06);
-            const rail = new THREE.Mesh(railGeo, postMat);
-            rail.position.set(cx, height * 0.7, cz);
-            rail.rotation.y = angle;
-            group.add(rail);
-        }
-    }
-
-    addItem(id, group, 'fence');
 }
 
 // ── Trees ─────────────────────────────────────────────────────
@@ -431,7 +394,6 @@ function spawnTree(id, local) {
     const trunkHeight = 1.2 * scale;
     const canopyRadius = 1.0 * scale;
 
-    // Trunk
     const trunkGeo = new THREE.CylinderGeometry(0.12 * scale, 0.18 * scale, trunkHeight, 8);
     const trunkMat = new THREE.MeshStandardMaterial({ color: COLORS.treeTrunk, roughness: 0.9 });
     const trunk = new THREE.Mesh(trunkGeo, trunkMat);
@@ -439,19 +401,16 @@ function spawnTree(id, local) {
     trunk.castShadow = true;
     group.add(trunk);
 
-    // Canopy (layered spheres for AC style)
     const leafColors = [COLORS.treeLeaf1, COLORS.treeLeaf2, COLORS.treeLeaf3];
     const leafColor = leafColors[Math.floor(Math.random() * leafColors.length)];
     const leafMat = new THREE.MeshStandardMaterial({ color: leafColor, roughness: 0.85 });
 
-    // Main canopy ball
     const canopyGeo = new THREE.SphereGeometry(canopyRadius, 10, 10);
     const canopy = new THREE.Mesh(canopyGeo, leafMat);
     canopy.position.y = trunkHeight + canopyRadius * 0.6;
     canopy.castShadow = true;
     group.add(canopy);
 
-    // Side blobs for fullness
     for (let i = 0; i < 3; i++) {
         const blobAngle = (i / 3) * Math.PI * 2 + Math.random() * 0.5;
         const blobGeo = new THREE.SphereGeometry(canopyRadius * 0.55, 8, 8);
@@ -467,34 +426,29 @@ function spawnTree(id, local) {
     addItem(id, group, 'tree');
 }
 
-function spawnTreeRow(id, points) {
-    const group = new THREE.Group();
-    group.name = `env_treerow_${id}`;
+function scatterDecorativeTrees(refLat, refLng) {
+    // Add trees at random offsets along roads for an AC neighbourhood feel
+    const roadItems = [..._items.values()].filter(i => i.type === 'road');
+    let treeCount = 0;
+    const maxTrees = 40;
 
-    // Place trees along the way at intervals
-    const spacing = 5; // Every 5 meters
-    let dist = 0;
+    for (const item of roadItems) {
+        if (treeCount >= maxTrees) break;
+        // 30% chance per road segment
+        if (Math.random() > 0.3) continue;
 
-    for (let i = 0; i < points.length - 1; i++) {
-        const a = points[i];
-        const b = points[i + 1];
-        const segLen = Math.sqrt((b.x - a.x) ** 2 + (b.z - a.z) ** 2);
-        const dx = (b.x - a.x) / segLen;
-        const dz = (b.z - a.z) / segLen;
+        const pos = item.group.position;
+        const offset = 4 + Math.random() * 3;
+        const side = Math.random() > 0.5 ? 1 : -1;
 
-        while (dist < segLen) {
-            const px = a.x + dx * dist;
-            const pz = a.z + dz * dist;
-            // Create a standalone tree at this position
-            const treeId = `${id}_t${_items.size}`;
-            spawnTree(treeId, { x: px, z: pz });
-            dist += spacing;
-        }
-        dist -= segLen;
+        const treePos = {
+            x: pos.x + (Math.random() - 0.5) * 10 + offset * side,
+            z: pos.z + (Math.random() - 0.5) * 10
+        };
+
+        spawnTree(`deco_tree_${treeCount}`, treePos);
+        treeCount++;
     }
-
-    // Tree row group is empty (trees added individually), but keep for tracking
-    if (group.children.length > 0) addItem(id, group, 'tree_row');
 }
 
 // ── Grass & Flowers ───────────────────────────────────────────
@@ -505,7 +459,6 @@ function spawnGrassPatch(id, points) {
     const group = new THREE.Group();
     group.name = `env_grass_${id}`;
 
-    // Create a filled shape for the grass area
     const shape = new THREE.Shape();
     shape.moveTo(points[0].x, points[0].z);
     for (let i = 1; i < points.length; i++) {
@@ -528,39 +481,34 @@ function spawnGrassPatch(id, points) {
     // Scatter flowers
     const bounds = getBounds(points);
     const flowerColors = [COLORS.flower1, COLORS.flower2, COLORS.flower3, COLORS.flower4];
-    const flowerCount = Math.min(15, Math.floor(bounds.area / 20));
+    const flowerCount = Math.min(12, Math.floor(bounds.area / 25));
 
     for (let i = 0; i < flowerCount; i++) {
         const fx = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
         const fz = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
 
-        // Simple flower: small sphere cluster
         const flowerGroup = new THREE.Group();
         const petalColor = flowerColors[Math.floor(Math.random() * flowerColors.length)];
         const petalMat = new THREE.MeshStandardMaterial({ color: petalColor, roughness: 0.7 });
 
-        // Center
         const centerGeo = new THREE.SphereGeometry(0.06, 6, 6);
         const center = new THREE.Mesh(centerGeo, new THREE.MeshStandardMaterial({ color: 0xFFE066 }));
         center.position.y = 0.2;
         flowerGroup.add(center);
 
-        // Petals
         for (let p = 0; p < 5; p++) {
             const a = (p / 5) * Math.PI * 2;
-            const petalGeo = new THREE.SphereGeometry(0.05, 6, 6);
-            petalGeo.scale(1, 0.5, 1);
-            const petal = new THREE.Mesh(petalGeo, petalMat);
+            const pGeo = new THREE.SphereGeometry(0.05, 6, 6);
+            pGeo.scale(1, 0.5, 1);
+            const petal = new THREE.Mesh(pGeo, petalMat);
             petal.position.set(Math.cos(a) * 0.08, 0.2, Math.sin(a) * 0.08);
             flowerGroup.add(petal);
         }
 
-        // Stem
         const stemGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.2, 4);
         const stemMat = new THREE.MeshStandardMaterial({ color: 0x3A7D44 });
-        const stem = new THREE.Mesh(stemGeo, stemMat);
-        stem.position.y = 0.1;
-        flowerGroup.add(stem);
+        flowerGroup.add(new THREE.Mesh(stemGeo, stemMat));
+        flowerGroup.children[flowerGroup.children.length - 1].position.y = 0.1;
 
         flowerGroup.position.set(fx, 0.02, fz);
         flowerGroup.scale.setScalar(0.6 + Math.random() * 0.5);
@@ -568,23 +516,35 @@ function spawnGrassPatch(id, points) {
     }
 
     // Scatter bushes
-    const bushCount = Math.min(5, Math.floor(bounds.area / 50));
+    const bushCount = Math.min(4, Math.floor(bounds.area / 60));
     for (let i = 0; i < bushCount; i++) {
         const bx = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
         const bz = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
-        const bushGroup = createBush();
-        bushGroup.position.set(bx, 0.02, bz);
-        group.add(bushGroup);
+        const bush = createBush();
+        bush.position.set(bx, 0.02, bz);
+        group.add(bush);
     }
 
     addItem(id, group, 'grass');
+}
+
+function spawnForestPatch(id, points) {
+    if (points.length < 3) return;
+
+    const bounds = getBounds(points);
+    const treeCount = Math.min(8, Math.floor(bounds.area / 30));
+
+    for (let i = 0; i < treeCount; i++) {
+        const tx = bounds.minX + Math.random() * (bounds.maxX - bounds.minX);
+        const tz = bounds.minZ + Math.random() * (bounds.maxZ - bounds.minZ);
+        spawnTree(`${id}_tree_${i}`, { x: tx, z: tz });
+    }
 }
 
 function createBush() {
     const group = new THREE.Group();
     const bushMat = new THREE.MeshStandardMaterial({ color: COLORS.bush, roughness: 0.85 });
 
-    // 2-3 overlapping spheres
     const count = 2 + Math.floor(Math.random() * 2);
     for (let i = 0; i < count; i++) {
         const r = 0.25 + Math.random() * 0.15;
@@ -601,15 +561,36 @@ function createBush() {
     return group;
 }
 
-function getBounds(points) {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const p of points) {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-        if (p.z < minZ) minZ = p.z;
-        if (p.z > maxZ) maxZ = p.z;
+// ── Water ─────────────────────────────────────────────────────
+
+function spawnWater(id, points) {
+    if (points.length < 3) return;
+
+    const group = new THREE.Group();
+    group.name = `env_water_${id}`;
+
+    const shape = new THREE.Shape();
+    shape.moveTo(points[0].x, points[0].z);
+    for (let i = 1; i < points.length; i++) {
+        shape.lineTo(points[i].x, points[i].z);
     }
-    return { minX, maxX, minZ, maxZ, area: (maxX - minX) * (maxZ - minZ) };
+
+    const geo = new THREE.ShapeGeometry(shape);
+    geo.rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshStandardMaterial({
+        color: COLORS.water,
+        roughness: 0.2,
+        metalness: 0.3,
+        transparent: true,
+        opacity: 0.7,
+        side: THREE.DoubleSide
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = 0.01;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+
+    addItem(id, group, 'water');
 }
 
 // ── Benches ───────────────────────────────────────────────────
@@ -625,14 +606,12 @@ function spawnBench(id, local) {
     const woodMat = new THREE.MeshStandardMaterial({ color: COLORS.bench_wood, roughness: 0.9 });
     const metalMat = new THREE.MeshStandardMaterial({ color: COLORS.bench_metal, metalness: 0.8, roughness: 0.2 });
 
-    // Seat
     const seatGeo = new THREE.BoxGeometry(1.2, 0.1, 0.5);
     const seat = new THREE.Mesh(seatGeo, woodMat);
     seat.position.y = 0.4;
     seat.castShadow = true;
     group.add(seat);
 
-    // Backrest
     const backGeo = new THREE.BoxGeometry(1.2, 0.4, 0.1);
     const back = new THREE.Mesh(backGeo, woodMat);
     back.position.set(0, 0.65, -0.2);
@@ -640,12 +619,10 @@ function spawnBench(id, local) {
     back.castShadow = true;
     group.add(back);
 
-    // Legs
     const legGeo = new THREE.BoxGeometry(0.1, 0.4, 0.4);
     const legL = new THREE.Mesh(legGeo, metalMat);
     legL.position.set(-0.5, 0.2, 0);
     group.add(legL);
-
     const legR = legL.clone();
     legR.position.x = 0.5;
     group.add(legR);
@@ -664,18 +641,15 @@ function spawnBusStop(id, local) {
 
     const metalMat = new THREE.MeshStandardMaterial({ color: COLORS.busstop_metal, metalness: 0.8 });
 
-    // Posts
     const frameGeo = new THREE.BoxGeometry(0.1, 2.5, 0.1);
     const post1 = new THREE.Mesh(frameGeo, metalMat);
     post1.position.set(-1, 1.25, -0.5);
     post1.castShadow = true;
     group.add(post1);
-
     const post2 = post1.clone();
     post2.position.x = 1;
     group.add(post2);
 
-    // Roof
     const roofGeo = new THREE.BoxGeometry(2.4, 0.1, 1.2);
     const glassMat = new THREE.MeshStandardMaterial({
         color: COLORS.busstop_glass,
@@ -688,11 +662,10 @@ function spawnBusStop(id, local) {
     roof.rotation.x = 0.2;
     group.add(roof);
 
-    // Glowing sign
     const signGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.05, 16);
     const glowMat = new THREE.MeshBasicMaterial({ color: COLORS.busstop_glow });
     const sign = new THREE.Mesh(signGeo, glowMat);
-    sign.position.set(post2.position.x + 0.3, 2.2, post2.position.z);
+    sign.position.set(1.3, 2.2, -0.5);
     sign.rotation.z = Math.PI / 2;
     group.add(sign);
 
@@ -736,31 +709,26 @@ function spawnStation(id, local) {
     const platMat = new THREE.MeshStandardMaterial({ color: COLORS.station_platform, roughness: 0.7 });
     const roofMat = new THREE.MeshStandardMaterial({ color: COLORS.station_roof, roughness: 0.6 });
 
-    // Platform
     const platGeo = new THREE.BoxGeometry(8, 0.5, 3);
     const plat = new THREE.Mesh(platGeo, platMat);
     plat.position.y = 0.25;
     plat.receiveShadow = true;
     group.add(plat);
 
-    // Roof pillars
     const pillarGeo = new THREE.CylinderGeometry(0.15, 0.15, 3, 8);
-    const positions = [[-3, 0, -1.2], [-3, 0, 1.2], [3, 0, -1.2], [3, 0, 1.2]];
-    positions.forEach(([px, py, pz]) => {
+    [[-3, 0, -1.2], [-3, 0, 1.2], [3, 0, -1.2], [3, 0, 1.2]].forEach(([px, _, pz]) => {
         const pillar = new THREE.Mesh(pillarGeo, platMat);
         pillar.position.set(px, 2, pz);
         pillar.castShadow = true;
         group.add(pillar);
     });
 
-    // Roof
     const roofGeo = new THREE.BoxGeometry(8.5, 0.15, 3.5);
     const roof = new THREE.Mesh(roofGeo, roofMat);
     roof.position.y = 3.5;
     roof.castShadow = true;
     group.add(roof);
 
-    // Sign
     const signGeo = new THREE.BoxGeometry(2, 0.4, 0.05);
     const signMat = new THREE.MeshBasicMaterial({ color: COLORS.busstop_glow });
     const sign = new THREE.Mesh(signGeo, signMat);
@@ -770,35 +738,63 @@ function spawnStation(id, local) {
     addItem(id, group, 'station');
 }
 
-// ── Railway Platforms ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════════════
 
-function spawnPlatform(id, points) {
-    if (points.length < 3) return;
-
-    const group = new THREE.Group();
-    group.name = `env_platform_${id}`;
-
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].z);
-    for (let i = 1; i < points.length; i++) {
-        shape.lineTo(points[i].x, points[i].z);
-    }
-
-    const extSettings = { depth: 0.5, bevelEnabled: false };
-    const geo = new THREE.ExtrudeGeometry(shape, extSettings);
-    geo.rotateX(-Math.PI / 2);
-
-    const mat = new THREE.MeshStandardMaterial({ color: COLORS.station_platform, roughness: 0.7 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.receiveShadow = true;
-    group.add(mesh);
-
-    addItem(id, group, 'platform');
+function latLonToMeters(lat, lon, refLat, refLng) {
+    const x = (lon - refLng) * 111320 * Math.cos(refLat * Math.PI / 180);
+    const z = (lat - refLat) * 110574;
+    return { x, z };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ANIMATIONS
-// ═══════════════════════════════════════════════════════════════
+function findGroundHeight(x, z) {
+    if (!_scene) return 0;
+    _raycaster.set(new THREE.Vector3(x, 1000, z), _down);
+    const hits = _raycaster.intersectObjects(_scene.children, true);
+    for (const hit of hits) {
+        if (hit.object.name !== 'environment' &&
+            !hit.object.parent?.name?.includes('env_') &&
+            !hit.object.name.includes('node')) {
+            return hit.point.y;
+        }
+    }
+    return 0;
+}
+
+function getBounds(points) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const p of points) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.z < minZ) minZ = p.z;
+        if (p.z > maxZ) maxZ = p.z;
+    }
+    return { minX, maxX, minZ, maxZ, area: Math.abs((maxX - minX) * (maxZ - minZ)) };
+}
+
+function addItem(id, group, type) {
+    _envGroup.add(group);
+    _items.set(id, { group, type });
+
+    // Pop-in animation
+    group.scale.set(0, 0, 0);
+    bounceIn(group);
+}
+
+function clearEnvironment() {
+    for (const [id, item] of _items) {
+        _envGroup.remove(item.group);
+        item.group.traverse(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                else child.material.dispose();
+            }
+        });
+    }
+    _items.clear();
+}
 
 function bounceIn(group) {
     const startTime = performance.now();

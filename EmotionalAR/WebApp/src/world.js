@@ -7,10 +7,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { MAPTILER_API_KEY, TILE_ZOOM, latLonToTile } from './config.js';
 
 let scene, camera, renderer, composer, controls;
 let clock;
 let _canvas;
+let _groundMesh = null;
 let _targetPos = new THREE.Vector3(0, 0, 0);
 let _currentPos = new THREE.Vector3(0, 0, 0);
 
@@ -132,20 +134,90 @@ export function initWorld(canvas) {
   return { scene, camera, renderer, clock };
 }
 
-// ── Stylized Ground ──────────────────────────────────────────
+// ── Ground Plane (topo-v4 raster texture from MapTiler) ──
 
 export function initGround(scene) {
-  const groundGeo = new THREE.CircleGeometry(500, 64);
+  const groundGeo = new THREE.PlaneGeometry(1000, 1000, 1, 1);
   const groundMat = new THREE.MeshStandardMaterial({
     color: '#91C483',
     roughness: 1.0,
-    metalness: 0
+    metalness: 0,
+    side: THREE.DoubleSide
   });
-  const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  ground.name = 'ground';
-  scene.add(ground);
+  _groundMesh = new THREE.Mesh(groundGeo, groundMat);
+  _groundMesh.rotation.x = -Math.PI / 2;
+  _groundMesh.receiveShadow = true;
+  _groundMesh.name = 'ground';
+  scene.add(_groundMesh);
+}
+
+/**
+ * Load MapTiler topo-v4 raster tiles and apply as ground texture.
+ * Stitches a 3×3 grid of tiles for wider coverage.
+ */
+export function updateGroundTexture(lat, lng) {
+  const center = latLonToTile(lat, lng, TILE_ZOOM);
+  const GRID = 3;
+  const TILE_PX = 512;
+  const totalPx = GRID * TILE_PX;
+
+  const stitchCanvas = document.createElement('canvas');
+  stitchCanvas.width = totalPx;
+  stitchCanvas.height = totalPx;
+  const ctx = stitchCanvas.getContext('2d');
+
+  let loaded = 0;
+  const total = GRID * GRID;
+
+  console.log(`[Ground] Loading topo-v4 tiles for ${lat.toFixed(5)}, ${lng.toFixed(5)}...`);
+
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const tx = center.x + dx;
+      const ty = center.y + dy;
+      const url = `https://api.maptiler.com/maps/topo-v4/${TILE_ZOOM}/${tx}/${ty}@2x.png?key=${MAPTILER_API_KEY}`;
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+
+      const gx = dx + 1;
+      const gy = dy + 1;
+
+      img.onload = () => {
+        ctx.drawImage(img, gx * TILE_PX, gy * TILE_PX, TILE_PX, TILE_PX);
+        loaded++;
+        if (loaded === total) applyGroundTexture(stitchCanvas);
+      };
+      img.onerror = () => {
+        console.warn(`[Ground] Failed: topo-v4/${TILE_ZOOM}/${tx}/${ty}`);
+        loaded++;
+        if (loaded === total) applyGroundTexture(stitchCanvas);
+      };
+      img.src = url;
+    }
+  }
+}
+
+function applyGroundTexture(canvas) {
+  if (!_groundMesh) return;
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+
+  if (_groundMesh.material.map) _groundMesh.material.map.dispose();
+  _groundMesh.material.dispose();
+
+  _groundMesh.material = new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: 0.95,
+    metalness: 0,
+    side: THREE.DoubleSide
+  });
+
+  console.log('[Ground] Topo-v4 texture applied.');
 }
 
 /** Glide the world/camera to a new local position smoothly. */

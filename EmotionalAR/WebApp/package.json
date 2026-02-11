@@ -9,8 +9,10 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "@mapbox/vector-tile": "^2.0.4",
         "3d-tiles-renderer": "^0.4.21",
         "firebase": "^10.7.0",
+        "pbf": "^4.0.1",
         "three": "^0.170.0"
     },
     "devDependencies": {

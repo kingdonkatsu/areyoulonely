@@ -3,7 +3,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 import './style.css';
-import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo } from './world.js';
+import { initWorld, updateWorld, raycastFromScreen, getScene, getClock, smoothTo, updateGroundTexture } from './world.js';
 import { initNodes, syncNodes, animateNodes, getNodeMeshes, getNodeByMesh, getNodeCount } from './nodes.js';
 import { initFirebase, fetchNearbyMessages } from './firebase.js';
 import { initBuildings, updateBuildings, getBuildingCount } from './buildings.js';
@@ -86,13 +86,15 @@ async function boot() {
         if (distFromLastLoad > REFRESH_DIST) {
             console.log(`[Main] Moved ${distFromLastLoad.toFixed(0)}m. Refreshing neighborhood.`);
             lastLoadPos = { lat: update.lat, lng: update.lng };
+            updateGroundTexture(update.lat, update.lng);
             loadEnvironmentWithRetry(update.lat, update.lng);
         }
     });
 
     lastLoadPos = { lat: pos.lat, lng: pos.lng };
 
-    // ── Load Environment ──────────────────────────────────────
+    // ── Load Environment + Ground Texture ─────────────────────
+    updateGroundTexture(pos.lat, pos.lng);
     await loadEnvironmentWithRetry(pos.lat, pos.lng);
     await fetchAndSync();
 
