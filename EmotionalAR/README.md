@@ -1,155 +1,111 @@
-# EmotionalAR 🌐✨
+# EmotionalAR (BeyondBinary)
 
-**Anonymous emotional expression through augmented reality.**
+An immersive Augmented Reality web application that visualizes anonymous emotional messages as glowing 3D crystals in your real-world surroundings.
 
-A mobile AR app that visualizes anonymous emotional messages as glowing 3D nodes in a calm miniature world overlaid on your real surroundings. Share how you feel, see the emotional landscape around you, and send support to others — all completely anonymously.
+Built with **Three.js**, **Mapbox GL JS**, and **Vite**. Backed by **Firebase**.
 
----
+## ✨ Features
 
-## Architecture
+- **Real-Time GPS Tracking**: Characters move with you in the real world.
+- **Color-Based Building Detection**: Characters and messages intelligently interact with buildings (climb rooftops, float on structures) using pixel sampling.
+- **Dynamic 3D Environment**: Mapbox 3D terrain and buildings rendered seamlessly with Three.js characters.
+- **Emotional Visualization**: Messages appear as floating crystals, color-coded by emotion (Joy, Sadness, Anger, Fear, etc.).
+- **Mobile Optimized**: Designed for touch controls, with "swipe to pan" and "tap to relocate" camera features.
 
-```
-┌──────────────────────┐         ┌─────────────────────────┐
-│   Unity AR Client    │ ←────→  │    Firebase Backend      │
-│                      │         │                          │
-│  • AR Foundation     │         │  • Anonymous Auth        │
-│  • Emotion Nodes     │         │  • Firestore (messages)  │
-│  • Gesture Controls  │         │  • Cloud Functions (x6)  │
-│  • Message Card UI   │         │  • OpenAI moderation     │
-│  • GPS → World Pos   │         │  • Geohash queries       │
-└──────────────────────┘         └─────────────────────────┘
-```
+## 🛠 Tech Stack
 
-## Features
+- **Frontend**: Vanilla JavaScript (ES Modules)
+- **3D Rendering**: Three.js
+- **Map Data**: Mapbox GL JS (Standard Style)
+- **Build Tool**: Vite
+- **Backend/Data**: Firebase (Firestore - Optional/Stubbed by default)
 
-- **Post** anonymous emotional messages anchored to your GPS location
-- **View** nearby messages (20m radius) as glowing 3D nodes in AR
-- **Read & Reply** — tap a node to read, send supportive responses
-- **Visual Feedback** — nodes brighten and warm as support accumulates
-- **Presence** — see anonymous viewer dots orbiting active messages
-- **AI Moderation** — GPT-4 classifies emotions, blocks toxicity, rewrites negativity
-- **Privacy-first** — no profiles, no usernames, no tracking, 7-day auto-delete
+## 🚀 Getting Started
 
-## Anti-Patterns (By Design)
+### Prerequisites
 
-❌ No likes/upvotes/reactions · ❌ No followers/friends · ❌ No profiles  
-❌ No leaderboards · ❌ No push notifications · ❌ No viral mechanics
+1.  **Node.js**: Install from [nodejs.org](https://nodejs.org/).
+2.  **Mapbox Access Token**: Get a free token from [Mapbox](https://account.mapbox.com/).
 
----
+### 1. Web Application Setup
 
-## Tech Stack
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/yourusername/EmotionalAR.git
+    cd EmotionalAR/WebApp
+    ```
 
-| Layer      | Technology                                     |
-|------------|-------------------------------------------------|
-| Engine     | Unity 2022.3 LTS + Universal Render Pipeline    |
-| AR         | AR Foundation 5.1, ARKit 4+ / ARCore 1.30+      |
-| Backend    | Firebase (Auth, Firestore, Cloud Functions)      |
-| AI         | OpenAI GPT-4 Turbo (emotion + moderation)        |
-| Targets    | iOS 14+ / Android 10+                            |
+2.  Install dependencies:
+    ```bash
+    npm install
+    ```
 
----
+3.  Configure Mapbox Token:
+    - Open `src/config.js`.
+    - Replace `MAPBOX_ACCESS_TOKEN` with your own token.
+    - **Important**: Ensure your token has `localhost:3000` (and `localhost:5173` if dev port changes) in its **URL Restrictions**.
 
-## Setup Guide
+4.  (Optional) Configure Firebase:
+    - Open `src/firebase.js`.
+    - Add your Firebase config object to `FIREBASE_CONFIG` to enable real persistence.
+    - Default is **Stub Mode** (data resets on reload).
 
-### 1. Firebase Project
+### 2. Backend Setup (Optional)
+
+If you want to deploy the Cloud Functions for AI moderation:
+
+1.  Navigate to Firebase directory:
+    ```bash
+    cd ../Firebase/functions 
+    # (From project root: cd Firebase/functions)
+    ```
+
+2.  Install dependencies and deploy:
+    ```bash
+    npm install
+    # Set your OpenAI key
+    firebase functions:config:set openai.key="YOUR_KEY"
+    firebase deploy --only functions,firestore:rules
+    ```
+
+### Running Locally
+
+Start the development server (from `WebApp` directory):
 
 ```bash
-# Install Firebase CLI
-npm install -g firebase-tools
-
-# Login and init
-firebase login
-firebase init functions   # Select JavaScript, Node 18
-
-# Install dependencies
-cd Firebase/functions
-npm install
-
-# Set OpenAI API key
-firebase functions:config:set openai.key="YOUR_OPENAI_API_KEY"
-
-# Deploy
-firebase deploy --only functions,firestore:rules
+npm run dev
 ```
 
-### 2. Unity Project
+Visit `http://localhost:3000` in your browser.
 
-1. **Create** a new Unity 2022.3 LTS project with **Universal Render Pipeline**
-2. **Import packages** via Package Manager:
-   - AR Foundation 5.1.0
-   - ARKit XR Plugin 5.1.0 (iOS)
-   - ARCore XR Plugin 5.1.0 (Android)
-   - TextMeshPro
-3. **Import** [DOTween](http://dotween.demigiant.com/) (free version)
-4. **Import** Firebase Unity SDK packages: Auth, Firestore, Functions
-5. **Copy files** into your Unity project:
-   - `Unity/Scripts/` → `Assets/Scripts/`
-   - `Unity/Shaders/` → `Assets/Shaders/`
-6. **Add config** files to `Assets/`:
-   - `GoogleService-Info.plist` (iOS — from Firebase Console)
-   - `google-services.json` (Android — from Firebase Console)
-7. **Follow** `Unity/Prefabs/README.md` to create prefabs and wire Inspector references
-8. **Build settings**: Enable location services, camera access
+## 📱 Testing on Mobile
 
-### 3. Build & Deploy
+To test GPS and AR features on your phone, you **cannot** simply visit `http://192.168.x.x:3000` because browsers block Geolocation on insecure (non-HTTPS) connections.
 
-- **iOS**: Build in Unity → open Xcode project → deploy to device
-- **Android**: Build APK/AAB → install on device
+**Recommended Method: USB Port Forwarding (Chrome/Edge)**
 
----
+1.  Connect your Android phone to your PC via USB.
+2.  Enable **USB Debugging** on your phone.
+3.  Open `chrome://inspect/#devices` in Chrome on your PC.
+4.  Click **Port forwarding...**.
+5.  Add rule: Port `3000` points to `localhost:3000`.
+6.  On your phone's Chrome browser, visit `http://localhost:3000`.
+    - This allows GPS to work because `localhost` is treated as a secure origin found.
 
-## File Structure
+**Debugging on Mobile**
 
-```
-EmotionalAR/
-├── Unity/
-│   ├── Scripts/
-│   │   ├── FirebaseManager.cs      # Singleton — auth, Firestore, presence
-│   │   ├── ARWorldManager.cs       # AR session, world setup, GPS conversion
-│   │   ├── EmotionNodeController.cs# Node animation, color, interactions
-│   │   ├── MessageUIController.cs  # Card UI, text input, states
-│   │   └── GestureHandler.cs       # Pinch, drag, tap input
-│   ├── Shaders/
-│   │   ├── NodeGlow.shader         # Fresnel + emission pulse + additive
-│   │   ├── FrostedGlass.shader     # Translucent blur card material
-│   │   ├── PlatformGradient.shader # Radial gradient + Perlin noise
-│   │   └── SkyboxGradient.shader   # Procedural lavender gradient
-│   └── Prefabs/
-│       └── README.md               # Prefab creation instructions
-├── Firebase/
-│   ├── functions/
-│   │   ├── index.js                # 6 Cloud Functions
-│   │   └── package.json
-│   └── firestore.rules
-├── Config/
-│   └── README.md                   # Firebase config file instructions
-└── README.md                       # ← You are here
-```
+- An **Eruda** console button (floating gear icon) is added to the screen on mobile devices.
+- Tap it to view console logs and errors directly on your phone.
 
----
+## ⚠️ Troubleshooting
 
-## Emotion Color Palette
+**1. Mapbox 403 Errors / Blank Map**
+- **Cause**: Invalid token or URL restrictions.
+- **Fix**: Check your Mapbox dashboard. verify the token is valid and `localhost` is allowed.
 
-| Emotion    | Color     | Hex       | Temperature   |
-|------------|-----------|-----------|---------------|
-| Comfort    | Warm Orange | `#FF9F66` | Hot           |
-| Hope       | Soft Yellow | `#FFD93D` | Warm          |
-| Sadness    | Calm Blue   | `#6B9BD1` | Cool          |
-| Stress     | Cool Purple | `#A78BFA` | Cool          |
-| Loneliness | Muted Gray  | `#9CA3AF` | Neutral-Cool  |
+**2. "GPS Geolocation not available"**
+- **Cause**: Accessing via `http://` IP address (e.g., `http://192.168.1.5:3000`).
+- **Fix**: Use USB Port Forwarding to access via `localhost` (see above) or deploy to a secure host (Vercel/Netlify).
 
----
-
-## Performance Targets
-
-- World loads in ≤ 3 seconds
-- ≥ 30 FPS on iPhone 12 / Galaxy S21
-- < 100 draw calls
-- < 500 MB memory
-- Message fetch latency ≤ 300ms
-
----
-
-## License
-
-This project is provided as-is for educational and personal use.
+**3. Character Clipping / Jerky Movement**
+- The app uses pro-active building detection. If data is loading slowly, minor clipping may occur initially. Ensure a stable internet connection for map tiles.
