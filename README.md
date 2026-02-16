@@ -1,6 +1,6 @@
 # EmotionalAR (BeyondBinary)
 
-An immersive Augmented Reality web application that visualizes anonymous emotional messages as glowing 3D crystals in your real-world surroundings.
+An immersive Augmented Reality web application that visualizes anonymous emotional messages as glowing 3D crystals in your real-world surroundings. Built as part of NTU's Beyond Binary Hackathon hosted by Women in Tech.
 
 Built with **Three.js**, **Mapbox GL JS**, and **Vite**. Backed by **Firebase**.
 
