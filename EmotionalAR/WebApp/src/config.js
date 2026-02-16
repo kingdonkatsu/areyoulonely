@@ -4,7 +4,8 @@
 
 // ── Mapbox API ──────────────────────────────────────────────
 // Get your free token at: https://account.mapbox.com/access-tokens/
-export const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiZ3JlbmFkZWZhbiIsImEiOiJjbWxoYndscG4wNmQxM2NzaTRtc3NpZ3ZoIn0.0cr6xQBRKNnkcMSr1SEfsA';
+// Get your free token at: https://account.mapbox.com/access-tokens/
+export const MAPBOX_ACCESS_TOKEN = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 // Vector tile zoom level (15 = detailed street-level data)
 export const TILE_ZOOM = 15;

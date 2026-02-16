@@ -53,6 +53,7 @@ Desktop.ini
 *.app
 *.ipa
 *.dSYM/
+dist/
 
 # Crashlytics
 crashlytics-build.properties

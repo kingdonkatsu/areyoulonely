@@ -40,10 +40,13 @@ Built with **Three.js**, **Mapbox GL JS**, and **Vite**. Backed by **Firebase**.
     npm install
     ```
 
-3.  Configure Mapbox Token:
-    - Open `src/config.js`.
-    - Replace `MAPBOX_ACCESS_TOKEN` with your own token.
-    - **Important**: Ensure your token has `localhost:3000` (and `localhost:5173` if dev port changes) in its **URL Restrictions**.
+3.  Configure Environment Variables:
+    - Copy `.env.example` to `.env`:
+      ```bash
+      cp .env.example .env
+      ```
+    - Open `.env` and add your `VITE_MAPBOX_ACCESS_TOKEN` and `VITE_GROQ_API_KEY`.
+    - **Important**: Ensure your Mapbox token has `localhost:3000` (and `localhost:5173`) in its **URL Restrictions**.
 
 4.  (Optional) Configure Firebase:
     - Open `src/firebase.js`.
