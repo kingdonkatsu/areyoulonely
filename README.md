@@ -4,6 +4,14 @@ An immersive Augmented Reality web application that visualizes anonymous emotion
 
 Built with **Three.js**, **Mapbox GL JS**, and **Vite**. Backed by **Firebase**.
 
+## 💡 Problem Statement
+
+> **Hackathon Track: Problem Statement 2**
+>
+> In today's digital and fast-paced urban lifestyles, everyday social interactions have decreased significantly. This has led to increased feelings of isolation and weakened community support. At the same time, technology presents exciting opportunities to create inclusive, community-centered solutions.
+>
+> **The Challenge:** Design and develop a scalable solution that strengthens social connections and promotes mental well-being.
+
 ## ✨ Features
 
 - **Real-Time GPS Tracking**: Characters move with you in the real world.
